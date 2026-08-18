@@ -128,6 +128,28 @@
   button.accept { background: var(--ok); }
   button.accept:hover { background: #5A7A4E; }
   .m-manual { margin-top: 10px; }
+  /* Combined suggestion badges */
+  .dict-badge-sm {
+    display: inline-block; font-size: 10px; background: #EDE4F3;
+    color: #7B5EA7; border: 1px solid #C4AEDB; border-radius: 4px;
+    padding: 0 4px; margin-right: 2px; vertical-align: 1px;
+  }
+  .matrix-badge-sm {
+    display: inline-block; font-size: 10px; background: #FDF0E9;
+    color: var(--terracotta-dark); border: 1px solid #E5B8AC;
+    border-radius: 4px; padding: 0 4px; margin-right: 2px; vertical-align: 1px;
+  }
+  .ctx-badge-sm {
+    display: inline-block; font-size: 10px; background: #E4EFDC;
+    color: var(--ok); border: 1px solid #B5D4A8;
+    border-radius: 4px; padding: 0 4px; margin-right: 2px; vertical-align: 1px;
+  }
+  .exact-badge {
+    display: inline-block; font-size: 10px; background: var(--ok-bg);
+    color: var(--ok); border: 1px solid #B5D4A8;
+    border-radius: 4px; padding: 0 4px; margin-right: 2px; vertical-align: 1px;
+    font-weight: 600;
+  }
   /* Dictionary definition panel in modal */
   .dict-panel {
     margin-top: 12px; padding: 10px 12px; border: 1px solid #C4AEDB;
@@ -663,9 +685,142 @@
       const baseAlts = VISUALLY_SIMILAR[base] || [];
       alts.push(...baseAlts.map((c) => ({ text: c + matra, count: 0, pinned: false, static: true })));
     }
-    // If dictionary is loaded, also suggest dictionary words that contain this akshara
-    // as part of a correction — but only for the modal, not here.
     return alts.slice(0, 8);
+  }
+
+  /* ---- Combined suggestion: matrix + Levenshtein + context ---- */
+  /** Get all possible corrections for a single akshara from the matrix.
+      Returns [{ text, count, pinned }] sorted by frequency. */
+  function getAksharaCorrections(aksharaText) {
+    const matra = matrasOf(aksharaText);
+    const base = baseOf(aksharaText);
+    let hits = state.matrix.filter((e) => e.guess === aksharaText);
+    if (!hits.length && matra && base !== aksharaText) {
+      hits = state.matrix.filter((e) => baseOf(e.guess) === base)
+        .map((e) => ({ ...e, correct: e.correct + matra }));
+    }
+    hits.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.count - a.count);
+    if (hits.length) return hits.map(h => ({ text: h.correct, count: h.count, pinned: h.pinned }));
+    // Fallback: static visual similarity
+    const baseAlts = VISUALLY_SIMILAR[base] || [];
+    return baseAlts.map(c => ({ text: c + matra, count: 0, pinned: false }));
+  }
+
+  /** Generate whole-word candidates by applying matrix corrections.
+      For each low-confidence akshara, tries all known corrections.
+      Returns up to 20 candidates with their source akshara corrections. */
+  function generateMatrixCandidates(word) {
+    const aksharas = word.aksharas;
+    // Get corrections for each akshara (index → [{text, count}])
+    const perAkshara = aksharas.map((a, i) => {
+      const isLowConf = word.confidence < MED || a.corrected;
+      if (!isLowConf) return null;  // skip high-confidence aksharas
+      const corrs = getAksharaCorrections(a.corrected || a.text);
+      return corrs.length ? corrs : null;
+    });
+    // If no akshara has corrections, return empty
+    if (!perAkshara.some(c => c !== null)) return [];
+    // Cartesian product: try all combinations (capped at 20)
+    const candidates = [];
+    function buildCombo(idx, current, totalMatrixCount) {
+      if (candidates.length >= 20) return;
+      if (idx === aksharas.length) {
+        const wordText = current.join('');
+        candidates.push({ word: wordText, matrixScore: totalMatrixCount, source: 'matrix' });
+        return;
+      }
+      const corr = perAkshara[idx];
+      if (!corr) {
+        // High-confidence: keep original
+        buildCombo(idx + 1, [...current, aksharas[idx].corrected || aksharas[idx].text], totalMatrixCount);
+      } else {
+        // Try each correction (limit to top 3 per akshara to cap combinations)
+        for (const c of corr.slice(0, 3)) {
+          buildCombo(idx + 1, [...current, c.text], totalMatrixCount + c.count);
+        }
+        // Also try keeping the original
+        buildCombo(idx + 1, [...current, aksharas[idx].corrected || aksharas[idx].text], totalMatrixCount);
+      }
+    }
+    buildCombo(0, [], 0);
+    // Deduplicate
+    const seen = new Set();
+    return candidates.filter(c => { if (seen.has(c.word)) return false; seen.add(c.word); return true; });
+  }
+
+  /** Combined suggestion function: merges matrix candidates, Levenshtein
+      dictionary matches, and context scoring into a single ranked list.
+      Returns [{ word, score, dist, matrixScore, contextScore, inDict, source }]. */
+  function suggestBestCorrections(word, prevWord, nextWord, maxResults) {
+    maxResults = maxResults || 8;
+    const ocrText = word.aksharas.map(a => a.corrected || a.text).join('');
+    // If already in dictionary, no correction needed
+    if (dictReady && isInDictionary(ocrText) === true) return [];
+    const candidates = new Map();  // word → candidate object
+    function addCandidate(wordText, source, dist, matrixScore, contextScore) {
+      if (candidates.has(wordText)) {
+        const existing = candidates.get(wordText);
+        existing.matrixScore = Math.max(existing.matrixScore, matrixScore || 0);
+        existing.contextScore = Math.max(existing.contextScore, contextScore || 0);
+        if (source === 'dictionary') existing.inDict = true;
+        return;
+      }
+      candidates.set(wordText, {
+        word: wordText,
+        dist: dist || 0,
+        matrixScore: matrixScore || 0,
+        contextScore: contextScore || 0,
+        inDict: dictReady ? isInDictionary(wordText) === true : false,
+        source,
+      });
+    }
+    // 1. Matrix-generated candidates
+    const matrixCands = generateMatrixCandidates(word);
+    for (const c of matrixCands) {
+      addCandidate(c.word, 'matrix', levenshtein(ocrText, c.word), c.matrixScore, 0);
+    }
+    // 2. Levenshtein dictionary matches
+    if (dictReady && dictHeadwords) {
+      const maxDist = Math.max(3, Math.ceil(ocrText.length * 0.5));
+      for (const hw of dictHeadwords) {
+        if (Math.abs(hw.length - ocrText.length) > maxDist) continue;
+        const d = levenshtein(ocrText, hw);
+        if (d <= maxDist) {
+          let ctx = 0;
+          if (bigramReady && bigramModel) {
+            if (prevWord) ctx += bigramScore(prevWord, hw);
+            if (nextWord) ctx += bigramScore(hw, nextWord);
+          }
+          addCandidate(hw, 'dictionary', d, 0, ctx);
+        }
+      }
+    }
+    // 3. Score and rank all candidates
+    const maxMatrixCount = Math.max(1, ...[...candidates.values()].map(c => c.matrixScore));
+    const maxContext = Math.max(1, ...[...candidates.values()].map(c => c.contextScore));
+    const scored = [...candidates.values()].map(c => {
+      // Combined score: lower is better
+      // dist: 0-5 (Levenshtein)
+      // matrixScore: normalized 0-1 (confusion matrix frequency)
+      // contextScore: normalized 0-1 (bigram context)
+      // inDict: bonus -2 if true
+      const normMatrix = c.matrixScore / maxMatrixCount;
+      const normContext = c.contextScore / maxContext;
+      const dictBonus = c.inDict ? -2 : 0;
+      c.score = c.dist - normMatrix * 1.5 - normContext * 1.0 + dictBonus;
+      return c;
+    });
+    scored.sort((a, b) => a.score - b.score || a.dist - b.dist);
+    // Return top N, deduplicating by word
+    const result = [];
+    const seenWords = new Set();
+    for (const c of scored) {
+      if (seenWords.has(c.word)) continue;
+      seenWords.add(c.word);
+      result.push(c);
+      if (result.length >= maxResults) break;
+    }
+    return result;
   }
   function recordCorrection(guess, correct) {
     const e = state.matrix.find((x) => x.guess === guess && x.correct === correct);
@@ -881,69 +1036,98 @@
     modalGuess = guess; modalAkshara = akshara;
     const alts = getAlternatives(guess);
     const cnt = confirmationCount(guess);
-    // Get the full word text for dictionary lookup
     const wordText = word.aksharas.map(a => a.corrected || a.text).join('');
+    // Get context words for bigram scoring
+    const wordIndex = current ? current.words.indexOf(word) : -1;
+    const prevWord = wordIndex > 0
+      ? current.words[wordIndex - 1].aksharas.map(a => a.corrected || a.text).join('')
+      : null;
+    const nextWord = wordIndex >= 0 && wordIndex < current.words.length - 1
+      ? current.words[wordIndex + 1].aksharas.map(a => a.corrected || a.text).join('')
+      : null;
+    // Get combined suggestions (matrix + dictionary + context)
+    const bestCorrections = suggestBestCorrections(word, prevWord, nextWord, 10);
     const m = $('modal');
     m.innerHTML = '';
+
+    // Title
     const title = document.createElement('div');
     title.className = 'm-title';
     title.innerHTML = 'Correct "<b>' + esc(guess) + '</b>" in <span style="font-size:14px;">' + esc(wordText) + '</span>';
     m.appendChild(title);
+
+    // Subtitle with status
     const sub = document.createElement('div');
     sub.className = 'm-sub';
-    sub.textContent = alts.length
-      ? (alts.some((a) => a.count > 0)
-        ? 'Ranked by your confusion matrix — the matrix updates as you correct.'
-        : 'No learned alternatives yet — the static look-alike list is shown. Correcting teaches the matrix.')
-      : 'No alternatives known yet — pick a character to teach the matrix.'
-      + (cnt ? ' · confirmed correct ' + cnt + '× in past sessions' : '');
+    let subText = '';
+    if (bestCorrections.length > 0) {
+      const hasMatrix = bestCorrections.some(c => c.matrixScore > 0);
+      const hasDict = bestCorrections.some(c => c.inDict);
+      subText = 'Suggestions ranked by spelling similarity';
+      if (hasMatrix) subText += ' + your confusion matrix';
+      if (hasDict) subText += ' + dictionary';
+      if (bigramReady) subText += ' + word context';
+      subText += '.';
+    } else {
+      subText = 'No corrections found — type the correct character below.';
+    }
+    if (cnt) subText += ' Confirmed correct ' + cnt + '× in past sessions.';
+    sub.textContent = subText;
     m.appendChild(sub);
-    const list = document.createElement('div');
-    list.className = 'm-list';
-    alts.forEach((alt) => {
-      const b = document.createElement('button');
-      b.className = 'alt' + (alt.static ? ' static' : '');
-      b.innerHTML = '<span class="alt-char">' + esc(alt.text) + '</span><span class="alt-meta">'
-        + (alt.pinned ? '⭐ ' : '') + (alt.count > 0 ? alt.count + '×' : 'static') + '</span>';
-      b.onclick = () => { applyCorrection(alt.text); closeModal(); };
-      list.appendChild(b);
-    });
-    m.appendChild(list);
 
-    // Dictionary suggestion: if dictionary is loaded and word is unknown,
-    // show closest dictionary matches for the WHOLE word
-    if (dictReady && isInDictionary(wordText) === false) {
-      const wordSuggestions = suggestDictionaryMatches(wordText, Math.max(3, Math.ceil(wordText.length * 0.4)));
-      if (wordSuggestions.length) {
-        const dictSection = document.createElement('div');
-        dictSection.className = 'dict-panel';
-        dictSection.innerHTML = '<div style="font-weight:600;color:#5B3D8F;margin-bottom:6px;">📖 Dictionary matches for "' + esc(wordText) + '"</div>';
-        wordSuggestions.forEach((ws) => {
-          const b = document.createElement('button');
-          b.className = 'alt';
-          b.innerHTML = '<span class="alt-char" style="font-size:16px;">' + esc(ws.word) + '</span><span class="alt-meta">edit distance ' + ws.dist + '</span>';
-          b.onclick = () => {
-            // Replace the entire word with the dictionary match
-            const wsAksharas = segmentAksharas(ws.word);
-            word.aksharas = wsAksharas.map((a) => ({ text: a, corrected: null, reviewed: false }));
-            // Mark as corrected
-            word.aksharas.forEach(a => { a.corrected = a.text; a.reviewed = true; });
-            recordCorrection(wordText, ws.word);
-            upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
-            closeModal();
-          };
-          dictSection.appendChild(b);
-        });
-        m.appendChild(dictSection);
-      }
+    // Combined suggestion list
+    if (bestCorrections.length > 0) {
+      const list = document.createElement('div');
+      list.className = 'm-list';
+      bestCorrections.forEach((c) => {
+        const b = document.createElement('button');
+        b.className = 'alt';
+        // Build meta badges
+        let meta = '';
+        if (c.inDict) meta += '<span class="dict-badge-sm">📖</span> ';
+        if (c.matrixScore > 0) meta += '<span class="matrix-badge-sm">' + c.matrixScore + '×</span> ';
+        if (c.contextScore > 0) meta += '<span class="ctx-badge-sm">context</span> ';
+        if (c.dist > 0 && !c.inDict) meta += 'dist ' + c.dist;
+        if (c.source === 'matrix' && c.dist === 0) meta += '<span class="exact-badge">exact</span>';
+        b.innerHTML = '<span class="alt-char">' + esc(c.word) + '</span><span class="alt-meta">' + meta + '</span>';
+        b.onclick = () => {
+          // Replace the entire word
+          const wsAksharas = segmentAksharas(c.word);
+          word.aksharas = wsAksharas.map(a => ({ text: a, corrected: null, reviewed: false }));
+          word.aksharas.forEach(a => { a.corrected = a.text; a.reviewed = true; });
+          recordCorrection(wordText, c.word);
+          upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
+          closeModal();
+        };
+        list.appendChild(b);
+      });
+      m.appendChild(list);
     }
 
-    // Dictionary lookup panel: look up the WHOLE word
+    // Akshara-level fallback: show single-character alternatives if no word-level suggestions
+    if (bestCorrections.length === 0 && alts.length > 0) {
+      const fallbackLabel = document.createElement('div');
+      fallbackLabel.className = 'mconf-title';
+      fallbackLabel.textContent = 'Akshara-level alternatives (click to correct just this character)';
+      m.appendChild(fallbackLabel);
+      const list = document.createElement('div');
+      list.className = 'm-list';
+      alts.forEach((alt) => {
+        const b = document.createElement('button');
+        b.className = 'alt' + (alt.static ? ' static' : '');
+        b.innerHTML = '<span class="alt-char">' + esc(alt.text) + '</span><span class="alt-meta">'
+          + (alt.pinned ? '⭐ ' : '') + (alt.count > 0 ? alt.count + '×' : 'static') + '</span>';
+        b.onclick = () => { applyCorrection(alt.text); closeModal(); };
+        list.appendChild(b);
+      });
+      m.appendChild(list);
+    }
+
+    // Dictionary lookup panel
     const dictPanel = document.createElement('div');
     dictPanel.className = 'dict-panel';
     dictPanel.innerHTML = '<div class="dict-loading">📖 Looking up "' + esc(wordText) + '" in Monier-Williams…</div>';
     m.appendChild(dictPanel);
-    // Fetch definition in background
     fetchMWDefinition(wordText).then((result) => {
       if (dictPanel.dataset.cancelled) return;
       if (result) {
@@ -955,7 +1139,7 @@
       } else {
         dictPanel.innerHTML =
           '<div class="dict-error">"' + esc(wordText) + '" not found in Monier-Williams dictionary.</div>' +
-          '<div style="font-size:12px;color:var(--brown-soft);margin-top:4px;">This may be a compound, inflected form, or OCR error. Try correcting individual characters above.</div>';
+          '<div style="font-size:12px;color:var(--brown-soft);margin-top:4px;">This may be a compound, inflected form, or OCR error.</div>';
       }
     }).catch((e) => {
       if (dictPanel.dataset.cancelled) return;
