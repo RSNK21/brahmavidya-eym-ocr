@@ -282,6 +282,7 @@
   const DICT_HEADWORDS_LOCAL = 'sanskrit-headwords.json';   // co-hosted
   const DICT_HEADWORDS_CDN = 'https://raw.githubusercontent.com/sanskrit-lexicon/csl-json/main/ashtadhyayi.com/mw.json';
   const DICT_MW_RAW = DICT_HEADWORDS_CDN;
+  const BIGRAMS_LOCAL = 'sanskrit-bigrams.json';  // co-hosted
 
   let dictHeadwords = null;  // Set<string> — null until loaded
   let dictLoading = false;
@@ -289,6 +290,9 @@
   let dictError = null;
   // Cache: word → {h1, def} or null
   const dictCache = new Map();
+  // Bigram model: "word1\x00word2" → count (loaded lazily)
+  let bigramModel = null;
+  let bigramReady = false;
 
   /** Lazy-load the headword set for spell-checking.
       Tries the co-hosted local file first (fast, same-origin).
@@ -323,6 +327,8 @@
     if (loaded) {
       dictReady = true;
       dictError = null;
+      // Also load bigram model in parallel (optional — not fatal if missing)
+      ensureBigrams();
       badge.textContent = '📖 ' + dictHeadwords.size.toLocaleString() + ' words';
       badge.title = 'Monier-Williams Sanskrit dictionary loaded — ' + dictHeadwords.size + ' headwords';
     } catch (e) {
@@ -339,6 +345,43 @@
   function isInDictionary(word) {
     if (!dictReady || !dictHeadwords) return null; // unknown — dict not loaded
     return dictHeadwords.has(word);
+  }
+
+  /* ---- Bigram model for context-aware correction ---- */
+  /** Lazy-load the bigram frequency table. */
+  async function ensureBigrams() {
+    if (bigramReady) return;
+    try {
+      const resp = await fetch(BIGRAMS_LOCAL);
+      if (!resp.ok) return;  // optional file — not fatal
+      bigramModel = await resp.json();
+      bigramReady = true;
+      console.log('Bigram model loaded:', Object.keys(bigramModel).length, 'entries');
+    } catch (_) { /* optional — spell-check still works without it */ }
+  }
+
+  /** Get bigram frequency score for a word pair.
+      Returns 0 if either word or the pair is unknown. */
+  function bigramScore(prevWord, nextWord) {
+    if (!bigramReady || !bigramModel) return 0;
+    const key1 = prevWord + '\x00' + nextWord;
+    const key2 = nextWord + '\x00' + prevWord;
+    return (bigramModel[key1] || 0) + (bigramModel[key2] || 0);
+  }
+
+  /** Get unigram frequency (sum of all bigrams containing this word). */
+  function unigramScore(word) {
+    if (!bigramReady || !bigramModel) return 0;
+    let score = 0;
+    // Check both positions: ...\x00word and word\x00...
+    // This is O(n) but called only for top candidates
+    for (const key of Object.keys(bigramModel)) {
+      const parts = key.split('\x00');
+      if (parts[0] === word || parts[1] === word) {
+        score += bigramModel[key];
+      }
+    }
+    return score;
   }
 
   /* ---- Levenshtein distance for dictionary suggestions ---- */
@@ -361,8 +404,10 @@
     return prev[n];
   }
 
-  /** Find closest dictionary matches for an unknown word. Returns up to 5. */
-  function suggestDictionaryMatches(word, maxDist) {
+  /** Find closest dictionary matches for an unknown word.
+      If context (prevWord/nextWord) is provided, uses bigram scores
+      to rerank candidates by contextual likelihood. Returns up to 5. */
+  function suggestDictionaryMatches(word, maxDist, prevWord, nextWord) {
     if (!dictReady || !dictHeadwords) return [];
     maxDist = maxDist || Math.max(2, Math.ceil(word.length * 0.4));
     const candidates = [];
@@ -370,10 +415,18 @@
       // Quick length filter: skip if too different in length
       if (Math.abs(hw.length - word.length) > maxDist) continue;
       const d = levenshtein(word, hw);
-      if (d <= maxDist) candidates.push({ word: hw, dist: d });
+      if (d <= maxDist) {
+        // Combine edit distance with bigram context score
+        let contextScore = 0;
+        if (bigramReady && bigramModel) {
+          if (prevWord) contextScore += bigramScore(prevWord, hw);
+          if (nextWord) contextScore += bigramScore(hw, nextWord);
+        }
+        candidates.push({ word: hw, dist: d, context: contextScore });
+      }
     }
-    // Sort by distance, then alphabetically
-    candidates.sort((a, b) => a.dist - b.dist || a.word.localeCompare(b.word, 'sa'));
+    // Sort: primary by edit distance, secondary by context score (higher = better)
+    candidates.sort((a, b) => a.dist - b.dist || b.context - a.context || a.word.localeCompare(b.word, 'sa'));
     return candidates.slice(0, 5);
   }
 
@@ -412,7 +465,14 @@
       const text = w.aksharas.map(a => a.corrected || a.text).join('');
       const found = isInDictionary(text);
       if (found === false) {  // null means dict not loaded
-        const suggestions = suggestDictionaryMatches(text);
+        // Get context: previous and next words in the sentence
+        const prevWord = i > 0
+          ? current.words[i - 1].aksharas.map(a => a.corrected || a.text).join('')
+          : null;
+        const nextWord = i < current.words.length - 1
+          ? current.words[i + 1].aksharas.map(a => a.corrected || a.text).join('')
+          : null;
+        const suggestions = suggestDictionaryMatches(text, null, prevWord, nextWord);
         unknowns.push({ word: text, index: i, suggestions });
       }
     });
