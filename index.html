@@ -192,11 +192,13 @@
 </head>
 <body>
   <header>
+    <img src="https://raw.githubusercontent.com/sanskrit-lexicon/csl-json/main/ashtadhyayi.com/mw.json" alt="EyM" style="display:none" />
+    <img src="logo-EyM.png" alt="EyM" style="height:48px;width:auto;border-radius:8px;flex-shrink:0" onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/logo-EyM.png';this.onerror=null" />
     <h1>EyM Sanskrit OCR</h1>
     <span class="badge">browser edition · prototype</span>
     <span class="badge ok">100% in-browser · no server</span>
     <span class="badge dict" id="dictBadge" title="Sanskrit dictionary loaded from Monier-Williams">📖 dictionary loading…</span>
-    <div class="sub">Upload a manuscript image — OCR, corrections and learning all happen on this device, saved in your browser.</div>
+    <div class="sub">Upload a manuscript image or PDF — OCR, corrections and learning all happen on this device, saved in your browser.</div>
   </header>
 
   <main>
@@ -204,10 +206,10 @@
       <div class="card">
         <h2>1 · Image</h2>
         <div class="drop" id="drop">
-          <div class="big">Drop an image here, or click to browse</div>
-          <div style="font-size:12px; margin-top:4px;">PNG / JPG · processed entirely in your browser</div>
+          <div class="big">Drop an image or PDF here, or click to browse</div>
+          <div style="font-size:12px; margin-top:4px;">PNG / JPG / PDF · up to 20 MB · processed entirely in your browser</div>
         </div>
-        <input type="file" id="file" accept="image/*" hidden />
+        <input type="file" id="file" accept="image/*,.pdf,application/pdf" hidden />
         <div class="row">
           <button class="btn" id="sampleBtn">🪔 Try a sample image</button>
           <label style="font-size:12.5px; color:var(--brown-soft);">Language
@@ -275,6 +277,7 @@
   <footer>EyM by Brahmavidya: Foundation for Indian Arts · prototype — corrections are stored only in this browser</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
   'use strict';
   /* ================================================================
@@ -1245,10 +1248,21 @@
     setStatus('Running OCR on the sample image…');
     runOcr(c);
   }
+  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
   async function handleFile(file) {
     if (!file || busy) return;
+    // Enforce 20 MB limit
+    if (file.size > MAX_FILE_SIZE) {
+      setStatus('File too large (' + (file.size / 1024 / 1024).toFixed(1) + ' MB). Maximum is 20 MB.');
+      return;
+    }
     currentFile = file;
     setProgress(0);
+    // Handle PDF files
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      await handlePDF(file);
+      return;
+    }
     setStatus('Running OCR on ' + file.name + '…');
     const url = URL.createObjectURL(file);
     try {
@@ -1256,6 +1270,50 @@
       await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
       await runOcr(img);
     } finally { URL.revokeObjectURL(url); }
+  }
+  async function handlePDF(file) {
+    setStatus('Loading PDF (' + file.name + ')…');
+    const url = URL.createObjectURL(file);
+    try {
+      if (typeof pdfjsLib === 'undefined') throw new Error('PDF library not loaded');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const pdf = await pdfjsLib.getDocument(url).promise;
+      const totalPages = pdf.numPages;
+      setStatus('PDF has ' + totalPages + ' page' + (totalPages > 1 ? 's' : '') + ' — processing…');
+      let allWords = [];
+      let allText = '';
+      for (let i = 1; i <= totalPages; i++) {
+        setStatus('Rendering page ' + i + '/' + totalPages + '…');
+        setProgress((i - 1) / totalPages);
+        const page = await pdf.getPage(i);
+        const scale = 2.0;
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        setStatus('OCR on page ' + i + '/' + totalPages + '…');
+        const w = await ensureWorker();
+        const { data } = await w.recognize(canvas);
+        // Tag words with page number
+        (data.words || []).forEach(function(w) {
+          if (w && w.text && String(w.text).trim()) {
+            allWords.push({ text: String(w.text).trim(), confidence: Math.max(0, Math.min(1, (w.confidence || 0) / 100)), page: i });
+          }
+        });
+        allText += (data.text || '') + '\n';
+        setProgress(i / totalPages);
+      }
+      // Build a combined session
+      buildSession({ text: allText, words: allWords });
+      setStatus('PDF OCR complete — ' + totalPages + ' page' + (totalPages > 1 ? 's' : '') + '.');
+    } catch (e) {
+      console.error('PDF error:', e);
+      setStatus('PDF failed: ' + e.message);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
   /* ===================== wiring ===================== */
