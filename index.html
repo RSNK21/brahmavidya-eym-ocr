@@ -346,13 +346,18 @@
         loaded = true;
       } catch (_) { /* give up */ }
     }
-    if (loaded) {
-      dictReady = true;
-      dictError = null;
-      // Also load bigram model in parallel (optional — not fatal if missing)
-      ensureBigrams();
-      badge.textContent = '📖 ' + dictHeadwords.size.toLocaleString() + ' words';
-      badge.title = 'Monier-Williams Sanskrit dictionary loaded — ' + dictHeadwords.size + ' headwords';
+    try {
+      if (loaded) {
+        dictReady = true;
+        dictError = null;
+        // Also load bigram model in parallel (optional — not fatal if missing)
+        ensureBigrams();
+        badge.textContent = '📖 ' + dictHeadwords.size.toLocaleString() + ' words';
+        badge.title = 'Monier-Williams Sanskrit dictionary loaded — ' + dictHeadwords.size + ' headwords';
+      } else {
+        badge.textContent = '📖 dictionary unavailable';
+        badge.title = 'Dictionary could not be loaded';
+      }
     } catch (e) {
       dictError = e.message;
       badge.textContent = '📖 dictionary unavailable';
