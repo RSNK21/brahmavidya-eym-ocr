@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EyM Sanskrit OCR — Browser Edition (prototype)</title>
+<style>
+  :root {
+    --tan: #D2B48C; --brown: #5C4033; --brown-soft: #8A6A55;
+    --terracotta: #E2725B; --terracotta-dark: #C4553F;
+    --card: #FFFDF7; --line: #D9C7A8; --ok: #6B8F5E; --ok-bg: #E4EFDC;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Segoe UI", system-ui, sans-serif;
+    background: var(--tan); color: var(--brown); line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(180deg, #E8D5B8, #D2B48C);
+    border-bottom: 2px solid var(--brown-soft);
+    padding: 14px 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+  header .sub { font-size: 12.5px; color: var(--brown-soft); }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px;
+    border-radius: 99px; border: 1px solid var(--line); background: var(--card);
+  }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
+  .badge.dict { background: #EDE4F3; color: #7B5EA7; border-color: #C4AEDB; }
+  main {
+    display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px;
+    padding: 16px 22px 30px; max-width: 1300px; margin: 0 auto; align-items: start;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; box-shadow: 0 1px 3px rgba(92,64,51,.12);
+  }
+  .card h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--brown-soft); }
+  .drop {
+    border: 2px dashed var(--brown-soft); border-radius: 10px; padding: 22px;
+    text-align: center; color: var(--brown-soft); cursor: pointer; background: #FBF6EC;
+    transition: border-color .15s, background .15s;
+  }
+  .drop.over { border-color: var(--terracotta); background: #FDF0E9; }
+  .drop .big { font-size: 15px; font-weight: 600; color: var(--brown); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  button.btn {
+    background: var(--terracotta); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button.btn:hover { background: var(--terracotta-dark); }
+  button.btn.ghost { background: transparent; color: var(--brown); border: 1px solid var(--line); }
+  button.btn.full { width: 100%; }
+  button.mini {
+    background: transparent; border: 1px solid var(--line); border-radius: 6px;
+    color: var(--brown); font-size: 11px; padding: 1px 7px; cursor: pointer; line-height: 1.4;
+  }
+  button.mini.danger { color: var(--terracotta-dark); border-color: #E5B8AC; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  select, input[type="text"] {
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+    font-size: 13px; background: #fff; color: var(--brown); font-family: inherit;
+  }
+  #progress { height: 8px; border-radius: 4px; background: #EADFC9; overflow: hidden; margin-top: 8px; }
+  #progress > div { height: 100%; width: 0%; background: var(--terracotta); transition: width .2s; }
+  #status { font-size: 12.5px; color: var(--brown-soft); margin-top: 6px; min-height: 18px; }
+  .empty { color: #B09B84; font-size: 13px; padding: 10px 0; text-align: center; }
+  .line { font-size: 26px; line-height: 2; margin: 6px 0; word-spacing: normal; }
+  .word { white-space: nowrap; }
+  .tok {
+    cursor: pointer; border-radius: 5px; padding: 1px 2px; transition: background .12s;
+  }
+  .tok:hover { outline: 2px solid var(--terracotta); outline-offset: 1px; }
+  .tok.tier-low { background: #F6CFAE; }
+  .tok.tier-med { background: #F5E6C8; }
+  .tok.corrected { background: var(--ok-bg); }
+  .tok.reviewed { text-decoration: underline dotted var(--brown-soft); }
+  .tok.unknown-word {
+    text-decoration-line: underline; text-decoration-style: wavy;
+    text-decoration-color: var(--terracotta); text-underline-offset: 4px;
+  }
+  .legend { font-size: 11.5px; color: var(--brown-soft); margin-top: 8px; }
+  .legend span { display: inline-block; margin-right: 12px; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+  .fulltext {
+    margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px;
+    font-size: 13px; color: var(--brown-soft); word-break: break-word;
+  }
+  .sess {
+    display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
+    border-radius: 9px; padding: 8px 10px; margin-bottom: 7px; cursor: pointer; background: #FBF6EC;
+  }
+  .sess.active { border-color: var(--terracotta); background: #FDF0E9; }
+  .sess .grow { flex: 1; min-width: 0; }
+  .sess-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sess-meta { font-size: 11.5px; color: var(--brown-soft); }
+  .mrow {
+    display: flex; align-items: center; gap: 8px; font-size: 14px;
+    padding: 5px 2px; border-bottom: 1px dashed var(--line);
+  }
+  .mrow .grow { flex: 1; }
+  .mrow-count { font-size: 12px; color: var(--brown-soft); }
+  .mconf-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--ok); margin: 12px 0 2px; }
+  #overlay {
+    position: fixed; inset: 0; background: rgba(60,40,25,.45);
+    display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  #overlay.hidden { display: none; }
+  #modal {
+    background: var(--card); border-radius: 14px; padding: 20px; width: min(480px, 92vw);
+    max-height: 86vh; overflow: auto; box-shadow: 0 12px 40px rgba(0,0,0,.3);
+  }
+  .m-title { font-size: 17px; font-weight: 700; }
+  .m-sub { font-size: 12.5px; color: var(--brown-soft); margin: 4px 0 12px; }
+  .m-list { display: flex; flex-direction: column; gap: 7px; }
+  button.alt {
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid var(--line); border-radius: 9px; background: #FBF6EC;
+    padding: 8px 12px; cursor: pointer; font-family: inherit; color: var(--brown);
+  }
+  button.alt:hover { border-color: var(--terracotta); background: #FDF0E9; }
+  .alt-char { font-size: 22px; }
+  .alt-meta { font-size: 11.5px; color: var(--brown-soft); }
+  .m-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .m-actions button.btn { flex: 1; }
+  button.accept { background: var(--ok); }
+  button.accept:hover { background: #5A7A4E; }
+  .m-manual { margin-top: 10px; }
+  /* Dictionary definition panel in modal */
+  .dict-panel {
+    margin-top: 12px; padding: 10px 12px; border: 1px solid #C4AEDB;
+    border-radius: 9px; background: #F8F4FC; font-size: 13px; line-height: 1.6;
+  }
+  .dict-panel .dict-word { font-weight: 700; font-size: 15px; color: #5B3D8F; }
+  .dict-panel .dict-def { color: var(--brown); margin-top: 4px; }
+  .dict-panel .dict-ref { font-size: 11px; color: var(--brown-soft); margin-top: 6px; }
+  .dict-panel .dict-loading { color: var(--brown-soft); font-style: italic; }
+  .dict-panel .dict-error { color: var(--terracotta-dark); }
+  .dict-panel .dict-word-link {
+    font-size: 12px; color: #7B5EA7; text-decoration: underline dotted;
+    cursor: pointer; display: inline-block; margin-top: 6px;
+  }
+  /* Spell-check word list */
+  .spellcheck-words {
+    margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .spell-word {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border: 1px solid var(--terracotta); border-radius: 6px;
+    background: #FDF0E9; font-size: 13px; cursor: pointer;
+  }
+  .spell-word:hover { background: #F5D6C6; }
+  .spell-word .spell-suggest {
+    font-size: 11px; color: var(--ok); font-weight: 600;
+  }
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(10px);
+    background: var(--brown); color: #FFF; border-radius: 9px; padding: 9px 16px;
+    font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+    z-index: 60; max-width: 80vw;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  footer { text-align: center; font-size: 11.5px; color: var(--brown-soft); padding: 0 22px 26px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 12px; color: var(--brown-soft); }
+  details .note { font-size: 11.5px; color: var(--brown-soft); padding: 6px 2px 0; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>EyM Sanskrit OCR</h1>
+    <span class="badge">browser edition · prototype</span>
+    <span class="badge ok">100% in-browser · no server</span>
+    <span class="badge dict" id="dictBadge" title="Sanskrit dictionary loaded from Monier-Williams">📖 dictionary loading…</span>
+    <div class="sub">Upload a manuscript image — OCR, corrections and learning all happen on this device, saved in your browser.</div>
+  </header>
+
+  <main>
+    <section>
+      <div class="card">
+        <h2>1 · Image</h2>
+        <div class="drop" id="drop">
+          <div class="big">Drop an image here, or click to browse</div>
+          <div style="font-size:12px; margin-top:4px;">PNG / JPG · processed entirely in your browser</div>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden />
+        <div class="row">
+          <button class="btn" id="sampleBtn">🪔 Try a sample image</button>
+          <label style="font-size:12.5px; color:var(--brown-soft);">Language
+            <select id="lang">
+              <option value="san">Sanskrit (san)</option>
+              <option value="hin">Hindi (hin)</option>
+            </select>
+          </label>
+        </div>
+        <div id="progress"><div></div></div>
+        <div id="status">Ready.</div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h2>2 · Result — click any character to correct it</h2>
+        <div id="result"><div class="empty">The recognized text appears here, split into aksharas. Low-confidence characters are highlighted.</div></div>
+        <div id="spellcheckBox" style="display:none;">
+          <div class="mconf-title">⚠ Words not found in dictionary — click to correct</div>
+          <div class="spellcheck-words" id="spellcheckWords"></div>
+        </div>
+        <div class="legend">
+          <span><span class="sw" style="background:#F6CFAE"></span>low confidence (&lt;50%)</span>
+          <span><span class="sw" style="background:#F5E6C8"></span>medium (50–75%)</span>
+          <span><span class="sw" style="background:var(--ok-bg)"></span>corrected</span>
+          <span><span class="sw" style="border:1px dashed var(--brown-soft); background:transparent"></span>reviewed / accepted</span>
+          <span><span class="sw" style="border-bottom:2px wavy var(--terracotta); background:transparent"></span>not in dictionary</span>
+        </div>
+        <div class="fulltext" id="fulltext"></div>
+      </div>
+    </section>
+
+    <aside>
+      <div class="card">
+        <h2>Sessions</h2>
+        <div id="sessions"><div class="empty">No sessions yet.</div></div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <h2>Confusion Matrix</h2>
+        <div id="matrixBody"><div class="empty">No corrections yet — the matrix learns as you correct.</div></div>
+        <div class="row">
+          <button class="btn ghost" id="exportBtn">⬇ Export</button>
+          <button class="btn ghost" id="importBtn">⬆ Import</button>
+          <input type="file" id="importFile" accept=".json,.eym-matrix" hidden />
+        </div>
+        <details>
+          <summary>About this prototype</summary>
+          <div class="note">
+            A no-server preview of EyM: OCR runs with Tesseract.js (the engine + language data
+            download from a CDN once, then work offline; self-host them for a fully offline
+            deployment). Corrections teach a confusion matrix and sessions persist in IndexedDB
+            on this device. Export/import uses the same <b>.eym-matrix</b> format as the desktop
+            app for sharing across institutions. Transliteration (Devanagari → IAST) is built in.
+            The <b>Monier-Williams Sanskrit-English Dictionary</b> (195K+ headwords) powers
+            spell-checking and on-demand word lookup.
+          </div>
+        </details>
+      </div>
+    </aside>
+  </main>
+
+  <div id="overlay" class="hidden">
+    <div id="modal"></div>
+  </div>
+  <div id="toast"></div>
+  <footer>EyM by Brahmavidya: Foundation for Indian Arts · prototype — corrections are stored only in this browser</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <script>
+  'use strict';
+  /* ================================================================
+     EyM Browser Edition — prototype
+     OCR: Tesseract.js (in-browser WASM). Persistence: IndexedDB.
+     Dictionary: Monier-Williams Sanskrit-English (195K headwords).
+     ================================================================ */
+
+  const SCRIPT = 'Devanagari';
+  const ENGINE = 'tesseract.js';
+  const LOW = 0.5, MED = 0.75;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; };
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+
+  let state = { sessions: [], matrix: [], confirmations: [] };
+  let current = null;        // active session object
+  let currentFile = null;
+  let worker = null, workerLang = null, busy = false;
+  let modalGuess = null, modalAkshara = null;
+
+  /* ===================== SANSKRIT DICTIONARY ===================== */
+  /* Monier-Williams Sanskrit-English Dictionary via Cologne Digital
+     Sanskrit Lexicon. Headwords loaded lazily from a co-hosted JSON
+     file; definitions fetched on demand from GitHub raw CDN. */
+  const DICT_HEADWORDS_LOCAL = 'sanskrit-headwords.json';   // co-hosted
+  const DICT_HEADWORDS_CDN = 'https://raw.githubusercontent.com/sanskrit-lexicon/csl-json/main/ashtadhyayi.com/mw.json';
+  const DICT_MW_RAW = DICT_HEADWORDS_CDN;
+
+  let dictHeadwords = null;  // Set<string> — null until loaded
+  let dictLoading = false;
+  let dictReady = false;
+  let dictError = null;
+  // Cache: word → {h1, def} or null
+  const dictCache = new Map();
+
+  /** Lazy-load the headword set for spell-checking.
+      Tries the co-hosted local file first (fast, same-origin).
+      Falls back to the Cologne Sanskrit Lexicon API for word lookup only. */
+  async function ensureDictionary() {
+    if (dictReady || dictHeadwords) return;
+    if (dictLoading) return;
+    dictLoading = true;
+    const badge = $('dictBadge');
+    badge.textContent = '📖 loading dictionary…';
+    // Try local headwords file first (fast, same-origin)
+    let loaded = false;
+    try {
+      const resp = await fetch(DICT_HEADWORDS_LOCAL);
+      if (resp.ok) {
+        const arr = await resp.json();
+        dictHeadwords = new Set(arr);
+        loaded = true;
+      }
+    } catch (_) { /* ignore — try fallback */ }
+    // If local file failed, try the full MW JSON (large but works anywhere)
+    if (!loaded) {
+      try {
+        badge.textContent = '📖 downloading dictionary…';
+        const resp = await fetch(DICT_HEADWORDS_CDN);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        dictHeadwords = new Set(Object.keys(data.data.words));
+        loaded = true;
+      } catch (_) { /* give up */ }
+    }
+    if (loaded) {
+      dictReady = true;
+      dictError = null;
+      badge.textContent = '📖 ' + dictHeadwords.size.toLocaleString() + ' words';
+      badge.title = 'Monier-Williams Sanskrit dictionary loaded — ' + dictHeadwords.size + ' headwords';
+    } catch (e) {
+      dictError = e.message;
+      badge.textContent = '📖 dictionary unavailable';
+      badge.title = 'Could not load dictionary: ' + e.message;
+      console.warn('Dictionary load failed:', e);
+    } finally {
+      dictLoading = false;
+    }
+  }
+
+  /** Check if a word exists in the dictionary. */
+  function isInDictionary(word) {
+    if (!dictReady || !dictHeadwords) return null; // unknown — dict not loaded
+    return dictHeadwords.has(word);
+  }
+
+  /* ---- Levenshtein distance for dictionary suggestions ---- */
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    // Optimise: only two rows needed
+    let prev = new Array(n + 1);
+    let curr = new Array(n + 1);
+    for (let j = 0; j <= n; j++) prev[j] = j;
+    for (let i = 1; i <= m; i++) {
+      curr[0] = i;
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      }
+      [prev, curr] = [curr, prev];
+    }
+    return prev[n];
+  }
+
+  /** Find closest dictionary matches for an unknown word. Returns up to 5. */
+  function suggestDictionaryMatches(word, maxDist) {
+    if (!dictReady || !dictHeadwords) return [];
+    maxDist = maxDist || Math.max(2, Math.ceil(word.length * 0.4));
+    const candidates = [];
+    for (const hw of dictHeadwords) {
+      // Quick length filter: skip if too different in length
+      if (Math.abs(hw.length - word.length) > maxDist) continue;
+      const d = levenshtein(word, hw);
+      if (d <= maxDist) candidates.push({ word: hw, dist: d });
+    }
+    // Sort by distance, then alphabetically
+    candidates.sort((a, b) => a.dist - b.dist || a.word.localeCompare(b.word, 'sa'));
+    return candidates.slice(0, 5);
+  }
+
+  /** Fetch a word's Monier-Williams definition from GitHub raw CDN.
+      Caches results. Returns { h1, def } or null. */
+  async function fetchMWDefinition(word) {
+    if (dictCache.has(word)) return dictCache.get(word);
+    try {
+      const resp = await fetch(DICT_MW_RAW);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      const entryIds = data.data.words[word];
+      if (!entryIds) { dictCache.set(word, null); return null; }
+      // Take the first entry ID
+      const firstId = String(entryIds.split(',')[0]);
+      const entry = data.data.text[firstId];
+      if (!entry || !entry[0]) { dictCache.set(word, null); return null; }
+      // entry[0] is the definition text (may contain HTML-like markup)
+      const def = entry[0].replace(/<[^>]+>/g, '').trim();
+      const result = { h1: word, def };
+      dictCache.set(word, result);
+      return result;
+    } catch (e) {
+      console.warn('MW fetch failed for', word, e);
+      dictCache.set(word, null);
+      return null;
+    }
+  }
+
+  /* ---- Spell-check: identify unknown words after OCR ---- */
+  /** Returns array of { word, index, suggestions } for unknown words. */
+  function spellCheckWords() {
+    if (!current || !dictReady) return [];
+    const unknowns = [];
+    current.words.forEach((w, i) => {
+      const text = w.aksharas.map(a => a.corrected || a.text).join('');
+      const found = isInDictionary(text);
+      if (found === false) {  // null means dict not loaded
+        const suggestions = suggestDictionaryMatches(text);
+        unknowns.push({ word: text, index: i, suggestions });
+      }
+    });
+    return unknowns;
+  }
+
+  /** Render the spell-check word list below the result. */
+  function renderSpellCheck() {
+    const box = $('spellcheckBox');
+    const list = $('spellcheckWords');
+    if (!dictReady || !current) { box.style.display = 'none'; return; }
+    const unknowns = spellCheckWords();
+    if (!unknowns.length) { box.style.display = 'none'; return; }
+    box.style.display = '';
+    list.innerHTML = '';
+    unknowns.forEach((u) => {
+      const el = document.createElement('span');
+      el.className = 'spell-word';
+      const wordSpan = document.createElement('span');
+      wordSpan.textContent = u.word;
+      el.appendChild(wordSpan);
+      if (u.suggestions.length) {
+        const sug = document.createElement('span');
+        sug.className = 'spell-suggest';
+        sug.textContent = ' → ' + u.suggestions[0].word;
+        el.appendChild(sug);
+      }
+      el.title = u.suggestions.length
+        ? 'Suggestions: ' + u.suggestions.map(s => s.word + ' (dist ' + s.dist + ')').join(', ')
+        : 'No close dictionary matches found';
+      el.onclick = () => {
+        // Jump to the first akshara of this word in the correction modal
+        const word = current.words[u.index];
+        if (word && word.aksharas.length) openModal(word, word.aksharas[0]);
+      };
+      list.appendChild(el);
+    });
+  }
+
+  /* ===================== IndexedDB (tiny kv store) ===================== */
+  let dbPromise = null;
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('eym-browser', 1);
+      req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv'); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+  async function kvGet(key, fallback) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const rq = db.transaction('kv', 'readonly').objectStore('kv').get(key);
+      rq.onsuccess = () => resolve(rq.result === undefined ? fallback : rq.result);
+      rq.onerror = () => reject(rq.error);
+    });
+  }
+  async function kvSet(key, value) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  let saveTimer = null;
+  function persistSoon() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      Promise.all([
+        kvSet('sessions', state.sessions),
+        kvSet('matrix', state.matrix),
+        kvSet('confirmations', state.confirmations),
+      ]).catch((e) => console.error('persist failed', e));
+    }, 250);
+  }
+  function upsertSession() {
+    if (!current) return;
+    const i = state.sessions.findIndex((s) => s.id === current.id);
+    if (i >= 0) state.sessions[i] = current; else state.sessions.push(current);
+  }
+
+  /* ===================== akshara segmentation ===================== */
+  const MATRA_RE = /[\u0900-\u0903\u093A-\u094F\u0951-\u0957\u0962-\u0963\u200C\u200D]/;
+  function segmentAksharas(word) {
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      const seg = new Intl.Segmenter('und', { granularity: 'grapheme' });
+      return Array.from(seg.segment(word), (s) => s.segment);
+    }
+    const out = [];
+    for (const ch of word) {
+      if (!out.length) { out.push(ch); continue; }
+      const last = out[out.length - 1];
+      if (MATRA_RE.test(ch) || last.endsWith('\u094D')) out[out.length - 1] = last + ch;
+      else out.push(ch);
+    }
+    return out;
+  }
+  const matrasOf = (s) => Array.from(s).filter((ch) => MATRA_RE.test(ch)).join('');
+  const baseOf = (s) => Array.from(s).find((ch) => !MATRA_RE.test(ch)) ?? s;
+
+  /* ===================== Devanagari → IAST transliteration ===================== */
+  const INDEPENDENT_VOWELS = {
+    'अ':'a','आ':'ā','इ':'i','ई':'ī','उ':'u','ऊ':'ū','ऋ':'ṛ','ॠ':'ṝ','ऌ':'ḷ','ॡ':'ḹ',
+    'ए':'e','ऐ':'ai','ओ':'o','औ':'au','ॐ':'oṃ',
+  };
+  const CONSONANTS = {
+    'क':'k','ख':'kh','ग':'g','घ':'gh','ङ':'ṅ',
+    'च':'c','छ':'ch','ज':'j','झ':'jh','ञ':'ñ',
+    'ट':'ṭ','ठ':'ṭh','ड':'ḍ','ढ':'ḍh','ण':'ṇ',
+    'त':'t','थ':'th','द':'d','ध':'dh','न':'n',
+    'प':'p','फ':'ph','ब':'b','भ':'bh','म':'m',
+    'य':'y','र':'r','ल':'l','व':'v','श':'ś','ष':'ṣ','स':'s','ह':'h',
+    'ळ':'ḷ','ड़':'ṛ','ऴ':'ḻ',
+  };
+  const VOWEL_SIGNS = {
+    'ा':'ā','ि':'i','ी':'ī','ु':'u','ू':'ū','ृ':'ṛ','ॄ':'ṝ','े':'e','ै':'ai','ो':'o','ौ':'au','ॅ':'ê','ॉ':'ô',
+  };
+  const ANUSVARA = 'ं', VISARGA = 'ः', CANDRABINDU = 'ँ';
+  const VIRAMA = String.fromCharCode(0x094D);
+
+  function aksharaToIAST(a) {
+    let out = '', vowel = '', mark = '';
+    let endsVirama = false, sawConsonant = false;
+    for (const ch of Array.from(a)) {
+      if (ch === VIRAMA) { endsVirama = true; continue; }
+      const c = CONSONANTS[ch];
+      if (c) {
+        endsVirama = false;
+        out += c; sawConsonant = true;
+      }
+      else if (VOWEL_SIGNS[ch]) { endsVirama = false; vowel = VOWEL_SIGNS[ch]; }
+      else if (INDEPENDENT_VOWELS[ch]) { endsVirama = false; out += INDEPENDENT_VOWELS[ch]; sawConsonant = false; }
+      else if (ch === ANUSVARA) mark += 'ṃ';
+      else if (ch === VISARGA) mark += 'ḥ';
+      else if (ch === CANDRABINDU) mark += 'm̐';
+    }
+    if (!vowel && sawConsonant && !endsVirama) vowel = 'a';
+    return out + vowel + mark;
+  }
+  function toIAST(text) {
+    return text.split(/\s+/).filter(Boolean)
+      .map((w) => segmentAksharas(w).map(aksharaToIAST).join(''))
+      .join(' ');
+  }
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
+      else {
+        const ta = document.createElement('textarea'); ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+      }
+      toast('Copied to clipboard.');
+    } catch (_) { toast('Copy failed — select the text manually.'); }
+  }
+
+  // Static fallback: common visually-similar Devanagari confusions
+  const VISUALLY_SIMILAR = {
+    'ड': ['द','ड़','ढ','ण'], 'ड़': ['ड','द','ढ'], 'द': ['ड','द्ध','ब'],
+    'ण': ['न','ड','ढ'], 'न': ['ण','म','र'], 'भ': ['ब','भ्','व'],
+    'ब': ['भ','व','ब्'], 'व': ['ब','भ','व्'], 'प': ['य','फ','ष'],
+    'य': ['प','ज','ष'], 'श': ['ष','स'], 'ष': ['श','स','प'], 'स': ['श','ष'],
+    'ज': ['य','झ'], 'घ': ['ग','ध','झ'], 'ध': ['घ','द','भ'], 'थ': ['ध','त'],
+    'त': ['थ','द'], 'क': ['ख','क्'], 'ख': ['क','घ'], 'ग': ['घ','क'],
+    'च': ['छ','स'], 'छ': ['च','श'], 'म': ['न','भ'], 'र': ['न','व'],
+    'ल': ['ळ','ल्'], 'ळ': ['ल','ड'], 'अ': ['आ','अं'], 'आ': ['अ','आं'],
+    'इ': ['ई','ए'], 'ई': ['इ','ए'], 'उ': ['ऊ','ओ'], 'ऊ': ['उ','ओ'],
+    'ए': ['इ','ऐ'], 'ऐ': ['ए','आ'], 'ओ': ['उ','औ'], 'औ': ['ओ','आ'],
+  };
+
+  /* ===================== confusion matrix ===================== */
+  function getAlternatives(guess) {
+    const matra = matrasOf(guess);
+    const base = baseOf(guess);
+    let hits = state.matrix.filter((e) => e.guess === guess);
+    if (!hits.length && matra && base !== guess) {
+      hits = state.matrix.filter((e) => baseOf(e.guess) === base)
+        .map((e) => ({ ...e, correct: e.correct + matra }));
+    }
+    hits.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.count - a.count);
+    const alts = hits.map((h) => ({ text: h.correct, count: h.count, pinned: h.pinned, static: false }));
+    if (!hits.length) {
+      const baseAlts = VISUALLY_SIMILAR[base] || [];
+      alts.push(...baseAlts.map((c) => ({ text: c + matra, count: 0, pinned: false, static: true })));
+    }
+    // If dictionary is loaded, also suggest dictionary words that contain this akshara
+    // as part of a correction — but only for the modal, not here.
+    return alts.slice(0, 8);
+  }
+  function recordCorrection(guess, correct) {
+    const e = state.matrix.find((x) => x.guess === guess && x.correct === correct);
+    if (e) { e.count++; e.ts = new Date().toISOString(); }
+    else state.matrix.push({ id: uid(), guess, correct, count: 1, pinned: false, ts: new Date().toISOString() });
+  }
+  function recordConfirmation(guess) {
+    const c = state.confirmations.find((x) => x.guess === guess);
+    if (c) c.count++; else state.confirmations.push({ guess, count: 1, ts: new Date().toISOString() });
+  }
+  const confirmationCount = (guess) => {
+    const c = state.confirmations.find((x) => x.guess === guess);
+    return c ? c.count : 0;
+  };
+
+  /* ===================== OCR ===================== */
+  function setProgress(p) { $('progress').firstElementChild.style.width = Math.round(p * 100) + '%'; }
+  function setStatus(msg) { $('status').textContent = msg; }
+  function onProgress(m) {
+    if (m.status === 'recognizing text') setProgress(m.progress);
+    else if (m.status) setStatus(m.status + '…');
+  }
+  async function ensureWorker() {
+    const lang = $('lang').value;
+    if (worker && workerLang === lang) return worker;
+    if (worker) { try { await worker.terminate(); } catch (_) {} worker = null; }
+    setProgress(0);
+    setStatus('Loading OCR engine (' + lang + ') — first run downloads it from a CDN…');
+    try {
+      worker = await Tesseract.createWorker(lang, 1, { logger: onProgress });
+      workerLang = lang;
+      return worker;
+    } catch (err) {
+      setStatus('OCR engine failed to load: ' + err.message);
+      throw err;
+    }
+  }
+  async function runOcr(source) {
+    if (busy) return;
+    busy = true;
+    $('sampleBtn').disabled = $('lang').disabled = true;
+    try {
+      // Ensure dictionary is loaded in parallel with OCR
+      ensureDictionary().catch(() => {});
+      const w = await ensureWorker();
+      setProgress(0); setStatus('Recognizing…');
+      const { data } = await w.recognize(source);
+      buildSession(data);
+    } catch (err) {
+      console.error(err);
+      if (err.message && !err.message.includes('failed to load')) setStatus('OCR failed: ' + err.message);
+    } finally {
+      busy = false;
+      $('sampleBtn').disabled = $('lang').disabled = false;
+    }
+  }
+  function buildSession(data) {
+    const text = data.text || '';
+    let words = (data.words || [])
+      .filter((w) => w && w.text && String(w.text).trim())
+      .map((w) => ({ text: String(w.text).trim(), confidence: Math.max(0, Math.min(1, (w.confidence || 0) / 100)) }));
+    if (!words.length) {
+      words = text.split(/\s+/).filter(Boolean).map((t) => ({ text: t, confidence: 0.6 }));
+    }
+    current = {
+      id: uid(),
+      filename: currentFile ? currentFile.name : 'sample.png',
+      lang: $('lang').value,
+      script: SCRIPT, engine: ENGINE,
+      ts: new Date().toISOString(),
+      status: 'in_progress',
+      words: words.map((w) => ({
+        text: w.text, confidence: w.confidence,
+        aksharas: segmentAksharas(w.text).map((a) => ({ text: a, corrected: null, reviewed: false })),
+      })),
+    };
+    upsertSession();
+    renderResult(); renderSessions();
+    persistSoon();
+    const n = current.words.reduce((s, w) => s + w.aksharas.length, 0);
+    setStatus('Done — ' + current.words.length + ' word(s), ' + n + ' aksharas. Click any highlighted character to correct it.');
+    setProgress(1);
+    // Run spell-check after dictionary loads (may already be ready)
+    setTimeout(() => renderSpellCheck(), dictReady ? 0 : 2000);
+  }
+  const fullText = () => current ? current.words.map((w) => w.aksharas.map((a) => a.corrected || a.text).join('')).join(' ') : '';
+  const tierClass = (c) => c < LOW ? ' tier-low' : c < MED ? ' tier-med' : '';
+
+  /* ===================== rendering ===================== */
+  function renderResult() {
+    const box = $('result');
+    box.innerHTML = '';
+    if (!current) {
+      box.innerHTML = '<div class="empty">The recognized text appears here, split into aksharas. Low-confidence characters are highlighted.</div>';
+      $('fulltext').textContent = '';
+      $('spellcheckBox').style.display = 'none';
+      return;
+    }
+    const p = document.createElement('p');
+    p.className = 'line';
+    current.words.forEach((w, wi) => {
+      if (wi > 0) p.appendChild(document.createTextNode(' '));
+      const wspan = document.createElement('span');
+      wspan.className = 'word';
+      // Check if this word is in the dictionary
+      const wordText = w.aksharas.map(a => a.corrected || a.text).join('');
+      const inDict = isInDictionary(wordText);
+      w.aksharas.forEach((a) => {
+        const s = document.createElement('span');
+        s.className = 'tok' + tierClass(w.confidence) + (a.corrected ? ' corrected' : '') + (a.reviewed ? ' reviewed' : '');
+        // Add unknown-word underline if word not in dictionary
+        if (inDict === false && dictReady) s.classList.add('unknown-word');
+        s.textContent = a.corrected || a.text;
+        s.title = (a.corrected ? 'corrected from ' + a.text + ' · ' : 'OCR: ' + a.text + ' · ')
+          + 'word confidence ' + Math.round(w.confidence * 100) + '%'
+          + (inDict === false ? ' · ⚠ not in dictionary' : inDict === true ? ' · ✓ in dictionary' : '');
+        s.onclick = () => openModal(w, a);
+        wspan.appendChild(s);
+      });
+      p.appendChild(wspan);
+    });
+    box.appendChild(p);
+    renderSpellCheck();
+    const ft = $('fulltext');
+    ft.innerHTML = '';
+    const dev = document.createElement('div');
+    dev.innerHTML = '<b>Devanāgarī:</b> ' + esc(fullText());
+    const iast = document.createElement('div');
+    iast.innerHTML = '<b>IAST:</b> ' + esc(toIAST(fullText()));
+    const row = document.createElement('div');
+    row.className = 'row';
+    const copyDev = document.createElement('button');
+    copyDev.className = 'btn ghost'; copyDev.textContent = 'Copy Devanāgarī';
+    copyDev.onclick = () => copyText(fullText());
+    const copyIast = document.createElement('button');
+    copyIast.className = 'btn ghost'; copyIast.textContent = 'Copy IAST';
+    copyIast.onclick = () => copyText(toIAST(fullText()));
+    row.append(copyDev, copyIast);
+    ft.append(dev, iast, row);
+  }
+  function renderSessions() {
+    const box = $('sessions');
+    box.innerHTML = '';
+    const list = [...state.sessions].sort((a, b) => b.ts.localeCompare(a.ts));
+    if (!list.length) { box.innerHTML = '<div class="empty">No sessions yet.</div>'; }
+    list.forEach((s) => {
+      const row = document.createElement('div');
+      row.className = 'sess' + (current && current.id === s.id ? ' active' : '');
+      row.innerHTML =
+        '<div class="grow"><div class="sess-name">' + esc(s.filename) + ' <span class="badge ' + s.status + '">' + esc(s.status) + '</span></div>' +
+        '<div class="sess-meta">' + esc(new Date(s.ts).toLocaleString()) + ' · ' + s.words.length + ' words</div></div>';
+      row.onclick = () => { current = s; renderResult(); renderSessions(); };
+      const del = document.createElement('button');
+      del.className = 'mini danger'; del.textContent = '✕'; del.title = 'Delete session';
+      del.onclick = (e) => {
+        e.stopPropagation();
+        state.sessions = state.sessions.filter((x) => x.id !== s.id);
+        if (current && current.id === s.id) current = null;
+        renderSessions(); renderResult(); persistSoon();
+      };
+      row.appendChild(del);
+      box.appendChild(row);
+    });
+    const done = document.createElement('button');
+    done.className = 'btn full';
+    done.textContent = current && current.status === 'in_progress' ? '✓ Mark current session complete' : '＋ New session';
+    done.onclick = () => {
+      if (current && current.status === 'in_progress') {
+        current.status = 'completed'; upsertSession(); renderSessions(); toast('Session marked complete.');
+      } else { current = null; renderResult(); }
+      persistSoon();
+    };
+    box.appendChild(done);
+  }
+  function renderMatrix() {
+    const box = $('matrixBody');
+    box.innerHTML = '';
+    const entries = [...state.matrix].sort((a, b) => b.count - a.count);
+    if (!entries.length) {
+      box.innerHTML = '<div class="empty">No corrections yet — the matrix learns as you correct.</div>';
+    }
+    entries.forEach((e) => {
+      const row = document.createElement('div');
+      row.className = 'mrow';
+      row.innerHTML = '<span>' + esc(e.guess) + ' → ' + esc(e.correct) + '</span><span class="grow"></span><span class="mrow-count">' + e.count + '×</span>';
+      const pin = document.createElement('button');
+      pin.className = 'mini'; pin.textContent = e.pinned ? '⭐' : '☆'; pin.title = 'Pin as authoritative';
+      pin.onclick = () => { e.pinned = !e.pinned; renderMatrix(); persistSoon(); };
+      const del = document.createElement('button');
+      del.className = 'mini danger'; del.textContent = '✕'; del.title = 'Delete entry';
+      del.onclick = () => { state.matrix = state.matrix.filter((x) => x.id !== e.id); renderMatrix(); persistSoon(); };
+      row.append(pin, del);
+      box.appendChild(row);
+    });
+    const confs = state.confirmations.filter((c) => c.count > 0).sort((a, b) => b.count - a.count);
+    if (confs.length) {
+      const h = document.createElement('div');
+      h.className = 'mconf-title';
+      h.textContent = 'Confirmed correct — ' + confs.reduce((n, c) => n + c.count, 0) + ' total';
+      box.appendChild(h);
+      confs.slice(0, 12).forEach((c) => {
+        const row = document.createElement('div');
+        row.className = 'mrow';
+        row.innerHTML = '<span>' + esc(c.guess) + '</span><span class="grow"></span><span class="mrow-count">' + c.count + '× accepted</span>';
+        box.appendChild(row);
+      });
+    }
+  }
+
+  /* ===================== correction modal ===================== */
+  function openModal(word, akshara) {
+    const guess = akshara.text;
+    modalGuess = guess; modalAkshara = akshara;
+    const alts = getAlternatives(guess);
+    const cnt = confirmationCount(guess);
+    // Get the full word text for dictionary lookup
+    const wordText = word.aksharas.map(a => a.corrected || a.text).join('');
+    const m = $('modal');
+    m.innerHTML = '';
+    const title = document.createElement('div');
+    title.className = 'm-title';
+    title.innerHTML = 'Correct "<b>' + esc(guess) + '</b>" in <span style="font-size:14px;">' + esc(wordText) + '</span>';
+    m.appendChild(title);
+    const sub = document.createElement('div');
+    sub.className = 'm-sub';
+    sub.textContent = alts.length
+      ? (alts.some((a) => a.count > 0)
+        ? 'Ranked by your confusion matrix — the matrix updates as you correct.'
+        : 'No learned alternatives yet — the static look-alike list is shown. Correcting teaches the matrix.')
+      : 'No alternatives known yet — pick a character to teach the matrix.'
+      + (cnt ? ' · confirmed correct ' + cnt + '× in past sessions' : '');
+    m.appendChild(sub);
+    const list = document.createElement('div');
+    list.className = 'm-list';
+    alts.forEach((alt) => {
+      const b = document.createElement('button');
+      b.className = 'alt' + (alt.static ? ' static' : '');
+      b.innerHTML = '<span class="alt-char">' + esc(alt.text) + '</span><span class="alt-meta">'
+        + (alt.pinned ? '⭐ ' : '') + (alt.count > 0 ? alt.count + '×' : 'static') + '</span>';
+      b.onclick = () => { applyCorrection(alt.text); closeModal(); };
+      list.appendChild(b);
+    });
+    m.appendChild(list);
+
+    // Dictionary suggestion: if dictionary is loaded and word is unknown,
+    // show closest dictionary matches for the WHOLE word
+    if (dictReady && isInDictionary(wordText) === false) {
+      const wordSuggestions = suggestDictionaryMatches(wordText, Math.max(3, Math.ceil(wordText.length * 0.4)));
+      if (wordSuggestions.length) {
+        const dictSection = document.createElement('div');
+        dictSection.className = 'dict-panel';
+        dictSection.innerHTML = '<div style="font-weight:600;color:#5B3D8F;margin-bottom:6px;">📖 Dictionary matches for "' + esc(wordText) + '"</div>';
+        wordSuggestions.forEach((ws) => {
+          const b = document.createElement('button');
+          b.className = 'alt';
+          b.innerHTML = '<span class="alt-char" style="font-size:16px;">' + esc(ws.word) + '</span><span class="alt-meta">edit distance ' + ws.dist + '</span>';
+          b.onclick = () => {
+            // Replace the entire word with the dictionary match
+            const wsAksharas = segmentAksharas(ws.word);
+            word.aksharas = wsAksharas.map((a) => ({ text: a, corrected: null, reviewed: false }));
+            // Mark as corrected
+            word.aksharas.forEach(a => { a.corrected = a.text; a.reviewed = true; });
+            recordCorrection(wordText, ws.word);
+            upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
+            closeModal();
+          };
+          dictSection.appendChild(b);
+        });
+        m.appendChild(dictSection);
+      }
+    }
+
+    // Dictionary lookup panel: look up the WHOLE word
+    const dictPanel = document.createElement('div');
+    dictPanel.className = 'dict-panel';
+    dictPanel.innerHTML = '<div class="dict-loading">📖 Looking up "' + esc(wordText) + '" in Monier-Williams…</div>';
+    m.appendChild(dictPanel);
+    // Fetch definition in background
+    fetchMWDefinition(wordText).then((result) => {
+      if (dictPanel.dataset.cancelled) return;
+      if (result) {
+        dictPanel.innerHTML =
+          '<div class="dict-word">' + esc(result.h1) + '</div>' +
+          '<div class="dict-def">' + esc(result.def) + '</div>' +
+          '<div class="dict-ref">— Monier-Williams Sanskrit-English Dictionary (Cologne Digital Sanskrit Lexicon)</div>' +
+          '<span class="dict-word-link" onclick="window.open(\'https://www.sanskrit-lexicon.uni-koeln.de/scans/MWScan/2020/web/webtc2/index.php?key=' + encodeURIComponent(result.h1) + '&amp;hw=1&amp;Input=1\',\'_blank\')">View full entry at sanskrit-lexicon.uni-koeln.de →</span>';
+      } else {
+        dictPanel.innerHTML =
+          '<div class="dict-error">"' + esc(wordText) + '" not found in Monier-Williams dictionary.</div>' +
+          '<div style="font-size:12px;color:var(--brown-soft);margin-top:4px;">This may be a compound, inflected form, or OCR error. Try correcting individual characters above.</div>';
+      }
+    }).catch((e) => {
+      if (dictPanel.dataset.cancelled) return;
+      dictPanel.innerHTML = '<div class="dict-error">Dictionary lookup failed: ' + esc(e.message) + '</div>';
+    });
+
+    const manual = document.createElement('div');
+    manual.className = 'm-manual';
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.maxLength = 8; inp.placeholder = 'or type the correct akshara…';
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && inp.value.trim()) { applyCorrection(inp.value.trim()); closeModal(); } });
+    manual.appendChild(inp);
+    m.appendChild(manual);
+    const actions = document.createElement('div');
+    actions.className = 'm-actions';
+    const accept = document.createElement('button');
+    accept.className = 'btn accept'; accept.textContent = '✓ Accept as correct';
+    accept.onclick = () => { applyAccept(); closeModal(); };
+    const cancel = document.createElement('button');
+    cancel.className = 'btn ghost'; cancel.textContent = 'Cancel';
+    cancel.onclick = closeModal;
+    actions.append(accept, cancel);
+    m.appendChild(actions);
+    $('overlay').classList.remove('hidden');
+    setTimeout(() => inp.focus(), 30);
+  }
+  function applyCorrection(correct) {
+    if (!modalAkshara) return;
+    recordCorrection(modalGuess, correct);
+    modalAkshara.corrected = correct;
+    modalAkshara.reviewed = true;
+    upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
+  }
+  function applyAccept() {
+    if (!modalAkshara) return;
+    recordConfirmation(modalGuess);
+    modalAkshara.reviewed = true;
+    upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
+  }
+  function closeModal() {
+    // Cancel any pending dictionary fetches in the modal
+    const panels = $('modal').querySelectorAll('.dict-panel');
+    panels.forEach(p => { p.dataset.cancelled = '1'; });
+    modalGuess = modalAkshara = null;
+    $('overlay').classList.add('hidden');
+  }
+  $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeModal(); });
+
+  /* ===================== export / import ===================== */
+  function exportMatrix() {
+    const bundle = {
+      format: 'eym-matrix', version: 1, script: SCRIPT, ocr_engine: ENGINE, exported_by: 'eym-browser',
+      entries: state.matrix.map((e) => ({ ocr_guess: e.guess, correct_char: e.correct, count: e.count, created_at: e.ts, is_pinned: e.pinned })),
+      confirmations: state.confirmations.map((c) => ({ ocr_guess: c.guess, count: c.count, created_at: c.ts })),
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'eym-matrix-' + new Date().toISOString().slice(0, 10) + '.eym-matrix.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast('Exported ' + state.matrix.length + ' correction pair(s).');
+  }
+  async function importMatrix(file) {
+    let bundle;
+    try { bundle = JSON.parse(await file.text()); } catch (_) { toast('That file is not valid JSON.'); return; }
+    if (bundle.format !== 'eym-matrix') { toast('Not an .eym-matrix bundle.'); return; }
+    let added = 0, confAdded = 0;
+    (bundle.entries || []).forEach((en) => {
+      const guess = en.ocr_guess, correct = en.correct_char;
+      if (!guess || !correct) return;
+      const e = state.matrix.find((x) => x.guess === guess && x.correct === correct);
+      if (e) { e.count += en.count || 1; e.pinned = e.pinned || !!en.is_pinned; }
+      else { state.matrix.push({ id: uid(), guess, correct, count: en.count || 1, pinned: !!en.is_pinned, ts: en.created_at || new Date().toISOString() }); added++; }
+    });
+    (bundle.confirmations || []).forEach((c) => {
+      if (!c.ocr_guess) return;
+      const x = state.confirmations.find((v) => v.guess === c.ocr_guess);
+      if (x) x.count += c.count || 1;
+      else { state.confirmations.push({ guess: c.ocr_guess, count: c.count || 1, ts: c.created_at || new Date().toISOString() }); confAdded++; }
+    });
+    renderMatrix(); persistSoon();
+    toast('Imported ' + added + ' new correction pair(s), ' + confAdded + ' confirmation(s).');
+  }
+
+  /* ===================== uploads & sample ===================== */
+  function makeSample() {
+    const c = document.createElement('canvas');
+    c.width = 1200; c.height = 200;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#F5EFE4'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.fillStyle = '#3E2F23';
+    ctx.font = '64px "Nirmala UI", Mangal, "Noto Sans Devanagari", "Kohinoor Devanagari", sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('संस्कृतम् शुद्धम् दीप्तम्', 40, 100);
+    currentFile = null;
+    setProgress(0);
+    setStatus('Running OCR on the sample image…');
+    runOcr(c);
+  }
+  async function handleFile(file) {
+    if (!file || busy) return;
+    currentFile = file;
+    setProgress(0);
+    setStatus('Running OCR on ' + file.name + '…');
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      await runOcr(img);
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  /* ===================== wiring ===================== */
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+  }
+
+  const drop = $('drop'), fileInput = $('file');
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault(); drop.classList.remove('over');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); fileInput.value = ''; });
+  $('sampleBtn').addEventListener('click', makeSample);
+  $('lang').addEventListener('change', () => {
+    if (worker) { worker.terminate().catch(() => {}); worker = null; workerLang = null; }
+  });
+  $('exportBtn').addEventListener('click', exportMatrix);
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', () => { if ($('importFile').files[0]) importMatrix($('importFile').files[0]); $('importFile').value = ''; });
+
+  /* ===================== boot ===================== */
+  (async function init() {
+    try {
+      state.sessions = await kvGet('sessions', []);
+      state.matrix = await kvGet('matrix', []);
+      state.confirmations = await kvGet('confirmations', []);
+    } catch (e) { console.error('storage init failed', e); }
+    renderSessions(); renderMatrix();
+    // Start loading dictionary in background
+    ensureDictionary();
+  })();
+  </script>
+</body>
+</html>
