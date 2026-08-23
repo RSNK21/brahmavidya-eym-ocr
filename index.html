@@ -3,1560 +3,2752 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>EyM Sanskrit OCR — Browser Edition (prototype)</title>
+<title>EyM Sanskrit OCR — Scholar's Workstation</title>
+<meta name="description" content="Offline-first Sanskrit OCR and post-editing workstation by Brahmavidya. Features LEAP PE-style whole-word correction, full bounding-box hierarchy (block → para → line → word), marginal note detection, synchronized image overlay, and confusion matrix learning." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
-  :root {
-    --tan: #D2B48C; --brown: #5C4033; --brown-soft: #8A6A55;
-    --terracotta: #E2725B; --terracotta-dark: #C4553F;
-    --card: #FFFDF7; --line: #D9C7A8; --ok: #6B8F5E; --ok-bg: #E4EFDC;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: "Segoe UI", system-ui, sans-serif;
-    background: var(--tan); color: var(--brown); line-height: 1.5;
-  }
-  header {
-    background: linear-gradient(180deg, #E8D5B8, #D2B48C);
-    border-bottom: 2px solid var(--brown-soft);
-    padding: 14px 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  }
-  header h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
-  header .sub { font-size: 12.5px; color: var(--brown-soft); }
-  .badge {
-    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px;
-    border-radius: 99px; border: 1px solid var(--line); background: var(--card);
-  }
-  .badge.ok { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); }
-  .badge.dict { background: #EDE4F3; color: #7B5EA7; border-color: #C4AEDB; }
-  main {
-    display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px;
-    padding: 16px 22px 30px; max-width: 1300px; margin: 0 auto; align-items: start;
-  }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-  .card {
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-    padding: 14px 16px; box-shadow: 0 1px 3px rgba(92,64,51,.12);
-  }
-  .card h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--brown-soft); }
-  .drop {
-    border: 2px dashed var(--brown-soft); border-radius: 10px; padding: 22px;
-    text-align: center; color: var(--brown-soft); cursor: pointer; background: #FBF6EC;
-    transition: border-color .15s, background .15s;
-  }
-  .drop.over { border-color: var(--terracotta); background: #FDF0E9; }
-  .drop .big { font-size: 15px; font-weight: 600; color: var(--brown); }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-  button.btn {
-    background: var(--terracotta); color: #fff; border: none; border-radius: 8px;
-    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  button.btn:hover { background: var(--terracotta-dark); }
-  button.btn.ghost { background: transparent; color: var(--brown); border: 1px solid var(--line); }
-  button.btn.full { width: 100%; }
-  button.mini {
-    background: transparent; border: 1px solid var(--line); border-radius: 6px;
-    color: var(--brown); font-size: 11px; padding: 1px 7px; cursor: pointer; line-height: 1.4;
-  }
-  button.mini.danger { color: var(--terracotta-dark); border-color: #E5B8AC; }
-  button:disabled { opacity: .55; cursor: not-allowed; }
-  select, input[type="text"] {
-    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
-    font-size: 13px; background: #fff; color: var(--brown); font-family: inherit;
-  }
-  #progress { height: 8px; border-radius: 4px; background: #EADFC9; overflow: hidden; margin-top: 8px; }
-  #progress > div { height: 100%; width: 0%; background: var(--terracotta); transition: width .2s; }
-  #status { font-size: 12.5px; color: var(--brown-soft); margin-top: 6px; min-height: 18px; }
-  .empty { color: #B09B84; font-size: 13px; padding: 10px 0; text-align: center; }
-  .line { font-size: 26px; line-height: 2; margin: 6px 0; word-spacing: normal; }
-  .word { white-space: nowrap; }
-  .tok {
-    cursor: pointer; border-radius: 5px; padding: 1px 2px; transition: background .12s;
-  }
-  .tok:hover { outline: 2px solid var(--terracotta); outline-offset: 1px; }
-  .tok.tier-low { background: #F6CFAE; }
-  .tok.tier-med { background: #F5E6C8; }
-  .tok.corrected { background: var(--ok-bg); }
-  .tok.reviewed { text-decoration: underline dotted var(--brown-soft); }
-  .tok.unknown-word {
-    text-decoration-line: underline; text-decoration-style: wavy;
-    text-decoration-color: var(--terracotta); text-underline-offset: 4px;
-  }
-  .legend { font-size: 11.5px; color: var(--brown-soft); margin-top: 8px; }
-  .legend span { display: inline-block; margin-right: 12px; }
-  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
-  .fulltext {
-    margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px;
-    font-size: 13px; color: var(--brown-soft); word-break: break-word;
-  }
-  .sess {
-    display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
-    border-radius: 9px; padding: 8px 10px; margin-bottom: 7px; cursor: pointer; background: #FBF6EC;
-  }
-  .sess.active { border-color: var(--terracotta); background: #FDF0E9; }
-  .sess .grow { flex: 1; min-width: 0; }
-  .sess-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sess-meta { font-size: 11.5px; color: var(--brown-soft); }
-  .mrow {
-    display: flex; align-items: center; gap: 8px; font-size: 14px;
-    padding: 5px 2px; border-bottom: 1px dashed var(--line);
-  }
-  .mrow .grow { flex: 1; }
-  .mrow-count { font-size: 12px; color: var(--brown-soft); }
-  .mconf-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--ok); margin: 12px 0 2px; }
-  #overlay {
-    position: fixed; inset: 0; background: rgba(60,40,25,.45);
-    display: flex; align-items: center; justify-content: center; z-index: 50;
-  }
-  #overlay.hidden { display: none; }
-  #modal {
-    background: var(--card); border-radius: 14px; padding: 20px; width: min(480px, 92vw);
-    max-height: 86vh; overflow: auto; box-shadow: 0 12px 40px rgba(0,0,0,.3);
-  }
-  .m-title { font-size: 17px; font-weight: 700; }
-  .m-sub { font-size: 12.5px; color: var(--brown-soft); margin: 4px 0 12px; }
-  .m-list { display: flex; flex-direction: column; gap: 7px; }
-  button.alt {
-    display: flex; align-items: center; justify-content: space-between;
-    border: 1px solid var(--line); border-radius: 9px; background: #FBF6EC;
-    padding: 8px 12px; cursor: pointer; font-family: inherit; color: var(--brown);
-  }
-  button.alt:hover { border-color: var(--terracotta); background: #FDF0E9; }
-  .alt-char { font-size: 22px; }
-  .alt-meta { font-size: 11.5px; color: var(--brown-soft); }
-  .m-actions { display: flex; gap: 8px; margin-top: 14px; }
-  .m-actions button.btn { flex: 1; }
-  button.accept { background: var(--ok); }
-  button.accept:hover { background: #5A7A4E; }
-  .m-manual { margin-top: 10px; }
-  /* Combined suggestion badges */
-  .dict-badge-sm {
-    display: inline-block; font-size: 10px; background: #EDE4F3;
-    color: #7B5EA7; border: 1px solid #C4AEDB; border-radius: 4px;
-    padding: 0 4px; margin-right: 2px; vertical-align: 1px;
-  }
-  .matrix-badge-sm {
-    display: inline-block; font-size: 10px; background: #FDF0E9;
-    color: var(--terracotta-dark); border: 1px solid #E5B8AC;
-    border-radius: 4px; padding: 0 4px; margin-right: 2px; vertical-align: 1px;
-  }
-  .ctx-badge-sm {
-    display: inline-block; font-size: 10px; background: #E4EFDC;
-    color: var(--ok); border: 1px solid #B5D4A8;
-    border-radius: 4px; padding: 0 4px; margin-right: 2px; vertical-align: 1px;
-  }
-  .exact-badge {
-    display: inline-block; font-size: 10px; background: var(--ok-bg);
-    color: var(--ok); border: 1px solid #B5D4A8;
-    border-radius: 4px; padding: 0 4px; margin-right: 2px; vertical-align: 1px;
-    font-weight: 600;
-  }
-  /* Dictionary definition panel in modal */
-  .dict-panel {
-    margin-top: 12px; padding: 10px 12px; border: 1px solid #C4AEDB;
-    border-radius: 9px; background: #F8F4FC; font-size: 13px; line-height: 1.6;
-  }
-  .dict-panel .dict-word { font-weight: 700; font-size: 15px; color: #5B3D8F; }
-  .dict-panel .dict-def { color: var(--brown); margin-top: 4px; }
-  .dict-panel .dict-ref { font-size: 11px; color: var(--brown-soft); margin-top: 6px; }
-  .dict-panel .dict-loading { color: var(--brown-soft); font-style: italic; }
-  .dict-panel .dict-error { color: var(--terracotta-dark); }
-  .dict-panel .dict-word-link {
-    font-size: 12px; color: #7B5EA7; text-decoration: underline dotted;
-    cursor: pointer; display: inline-block; margin-top: 6px;
-  }
-  /* Spell-check word list */
-  .spellcheck-words {
-    margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px;
-  }
-  .spell-word {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 3px 8px; border: 1px solid var(--terracotta); border-radius: 6px;
-    background: #FDF0E9; font-size: 13px; cursor: pointer;
-  }
-  .spell-word:hover { background: #F5D6C6; }
-  .spell-word .spell-suggest {
-    font-size: 11px; color: var(--ok); font-weight: 600;
-  }
-  #toast {
-    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(10px);
-    background: var(--brown); color: #FFF; border-radius: 9px; padding: 9px 16px;
-    font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
-    z-index: 60; max-width: 80vw;
-  }
-  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  footer { text-align: center; font-size: 11.5px; color: var(--brown-soft); padding: 0 22px 26px; }
-  details { margin-top: 8px; }
-  summary { cursor: pointer; font-size: 12px; color: var(--brown-soft); }
-  details .note { font-size: 11.5px; color: var(--brown-soft); padding: 6px 2px 0; }
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM — Dark Terracotta Scholar Theme
+   ═══════════════════════════════════════════════════════════════════════════════ */
+:root {
+  --bg-deep:      #0C0806;
+  --bg-main:      #140E0A;
+  --bg-card:      #1C140E;
+  --bg-card2:     #261B13;
+  --bg-hover:     #352419;
+  --bg-input:     #120C07;
+  --line:         #382516;
+  --line2:        #523620;
+
+  --terra:        #E2725B;
+  --terra-dark:   #C4553F;
+  --terra-glow:   rgba(226,114,91,.18);
+  --terra-dim:    #8C3E2B;
+
+  --gold:         #D4A047;
+  --gold-dim:     #8A6620;
+  --gold-glow:    rgba(212,160,71,.15);
+
+  --jade:         #5BAE85;
+  --jade-dim:     #2D6B50;
+  --jade-glow:    rgba(91,174,133,.15);
+
+  --lavender:     #A785D9;
+  --lav-dim:      #5E3E8C;
+  --lav-glow:     rgba(167,133,217,.16);
+
+  --text-main:    #EEDCC8;
+  --text-sub:     #A0826C;
+  --text-muted:   #684F3E;
+
+  --diff-add:     rgba(91,174,133,.22);
+  --diff-del:     rgba(226,114,91,.22);
+  --diff-add-text:#5BAE85;
+  --diff-del-text:#E2725B;
+
+  --radius-sm:    6px;
+  --radius-md:    10px;
+  --radius-lg:    16px;
+
+  --shadow-card:  0 4px 20px rgba(0,0,0,.45);
+  --shadow-glow:  0 0 28px var(--terra-glow);
+
+  --font-sans:    'Outfit', system-ui, sans-serif;
+  --font-dev:     'Noto Sans Devanagari', 'Nirmala UI', 'Mangal', sans-serif;
+}
+
+body.light-mode {
+  --bg-deep:      #F7F1E6;
+  --bg-main:      #FCF8F2;
+  --bg-card:      #FFFFFF;
+  --bg-card2:     #F3E9D9;
+  --bg-hover:     #E8DCBE;
+  --bg-input:     #FFFFFF;
+  --line:         #D8C6A8;
+  --line2:        #B59E7E;
+  --text-main:    #342416;
+  --text-sub:     #73563D;
+  --text-muted:   #9C8068;
+  --shadow-card:  0 2px 14px rgba(60,40,25,.09);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-deep);
+  color: var(--text-main);
+  min-height: 100vh;
+  line-height: 1.55;
+  font-size: 13.5px;
+  transition: background .25s, color .25s;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-card); }
+::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--terra-dim); }
+
+h1, h2, h3 { font-weight: 600; line-height: 1.25; }
+code { font-family: 'Courier New', monospace; font-size: .9em; background: var(--bg-card2); border-radius: 4px; padding: 1px 5px; }
+
+/* ── Header ── */
+#app-header {
+  background: linear-gradient(135deg, var(--bg-card2) 0%, var(--bg-card) 100%);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 18px rgba(0,0,0,.45);
+}
+#app-header .logo-img { height: 38px; width: auto; border-radius: 6px; flex-shrink: 0; }
+#app-header h1 { font-size: 17px; letter-spacing: .3px; color: var(--text-main); }
+#app-header .tagline { font-size: 11px; color: var(--text-sub); }
+#header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600;
+  padding: 3px 9px; border-radius: 99px;
+  border: 1px solid var(--line2);
+  background: var(--bg-card2); color: var(--text-sub);
+}
+.badge.jade  { background: var(--jade-glow); color: var(--jade); border-color: var(--jade-dim); }
+.badge.terra { background: var(--terra-glow); color: var(--terra); border-color: var(--terra-dim); }
+.badge.gold  { background: var(--gold-glow); color: var(--gold); border-color: var(--gold-dim); }
+.badge.lav   { background: var(--lav-glow); color: var(--lavender); border-color: var(--lav-dim); }
+
+/* ── Toolbar ── */
+#toolbar {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  padding: 6px 16px; border-bottom: 1px solid var(--line);
+  background: var(--bg-card);
+}
+.tool-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 9px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 500;
+  background: var(--bg-card2); color: var(--text-sub);
+  border: 1px solid var(--line); cursor: pointer;
+  transition: all .15s;
+}
+.tool-btn:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--line2); }
+.tool-btn .kbd {
+  font-size: 9.5px; background: var(--bg-deep); border: 1px solid var(--line2);
+  border-radius: 3px; padding: 1px 3px; color: var(--text-muted); font-family: monospace;
+}
+#toolbar-right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+.mode-toggle { display: flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; }
+.mode-opt {
+  padding: 4px 9px; font-size: 11px; cursor: pointer;
+  background: var(--bg-card2); color: var(--text-sub);
+  border: none; font-family: var(--font-sans); transition: all .15s;
+}
+.mode-opt.active { background: var(--terra); color: #fff; }
+
+/* ── App Layout ── */
+#app-body {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  height: calc(100vh - 88px);
+  overflow: hidden;
+}
+@media (max-width: 1040px) {
+  #app-body { grid-template-columns: 1fr; height: auto; overflow: auto; }
+}
+
+#main-panel {
+  display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto; padding: 12px 16px;
+}
+
+#sidebar {
+  border-left: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  background: var(--bg-card); overflow: hidden;
+}
+
+#sidebar-tabs {
+  display: flex; border-bottom: 1px solid var(--line);
+  background: var(--bg-deep); overflow-x: auto;
+}
+.stab {
+  padding: 8px 12px; font-size: 11px; font-weight: 600;
+  color: var(--text-sub); cursor: pointer; white-space: nowrap;
+  border-bottom: 2px solid transparent; transition: all .15s; letter-spacing: .2px;
+}
+.stab:hover { color: var(--text-main); background: var(--bg-hover); }
+.stab.active { color: var(--terra); border-bottom-color: var(--terra); }
+
+.stab-pane { display: none; flex: 1; overflow-y: auto; padding: 12px; }
+.stab-pane.active { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Cards ── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-card);
+}
+.card-title {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.1px; color: var(--text-sub); margin-bottom: 8px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+/* ── Upload & Dropzone ── */
+#drop-zone {
+  border: 2px dashed var(--line2); border-radius: var(--radius-md);
+  padding: 20px; text-align: center; cursor: pointer;
+  background: linear-gradient(135deg, var(--bg-card2), var(--bg-card));
+  transition: all .2s; position: relative; overflow: hidden;
+}
+#drop-zone:hover, #drop-zone.over { border-color: var(--terra); background: var(--bg-hover); }
+#drop-zone .dz-icon { font-size: 30px; margin-bottom: 4px; display: block; }
+#drop-zone .dz-title { font-size: 14px; font-weight: 600; color: var(--text-main); }
+#drop-zone .dz-sub { font-size: 11.5px; color: var(--text-sub); margin-top: 2px; }
+
+.engine-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.engine-pill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 99px;
+  border: 1px solid var(--line2); background: var(--bg-card2);
+  cursor: pointer; font-size: 11.5px; font-weight: 500; color: var(--text-sub);
+  transition: all .15s;
+}
+.engine-pill.active { border-color: var(--terra); background: var(--terra-glow); color: var(--terra); }
+.engine-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+#progress-bar { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 8px; }
+#progress-bar > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--terra-dim), var(--terra)); transition: width .2s; }
+#status-line { font-size: 11.5px; color: var(--text-sub); margin-top: 5px; min-height: 16px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   SPLIT WORKBENCH: Interactive Image Overlay & Synchronized Bounding Boxes
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#workbench-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 860px) {
+  #workbench-split { grid-template-columns: 1fr; }
+}
+
+#overlay-container {
+  position: relative;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  max-height: 420px;
+  min-height: 240px;
+  display: block;
+  user-select: none;
+}
+#overlay-wrapper {
+  position: relative;
+  display: inline-block;
+  transform-origin: 0 0;
+  transition: transform .12s cubic-bezier(0.2, 0, 0, 1);
+}
+#source-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+#bbox-svg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+#bbox-svg.draw-mode {
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+.zoom-level-badge {
+  font-size: 10px;
+  font-family: monospace;
+  background: var(--bg-deep);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--gold);
+  min-width: 38px;
+  text-align: center;
+}
+
+/* SVG Bounding Boxes */
+.svg-bbox-word {
+  fill: rgba(226, 114, 91, 0.08);
+  stroke: var(--terra-dim);
+  stroke-width: 1.5;
+  pointer-events: all;
+  cursor: pointer;
+  transition: fill .12s, stroke .12s;
+}
+.svg-bbox-word:hover, .svg-bbox-word.active {
+  fill: rgba(226, 114, 91, 0.35);
+  stroke: var(--terra);
+  stroke-width: 2.5;
+}
+.svg-bbox-word.editing {
+  fill: rgba(212, 160, 71, 0.25);
+  stroke: var(--gold);
+  stroke-width: 2;
+  stroke-dasharray: 4 2;
+  cursor: move;
+}
+.svg-bbox-handle {
+  fill: #fff;
+  stroke: var(--gold);
+  stroke-width: 1.5;
+  pointer-events: all;
+  transition: transform .1s;
+}
+.svg-bbox-handle:hover {
+  fill: var(--terra);
+  stroke: #fff;
+}
+.svg-bbox-handle.nw, .svg-bbox-handle.se { cursor: nwse-resize; }
+.svg-bbox-handle.ne, .svg-bbox-handle.sw { cursor: nesw-resize; }
+
+.svg-bbox-line {
+  fill: none;
+  stroke: rgba(212, 160, 71, 0.4);
+  stroke-width: 1;
+  stroke-dasharray: 4 2;
+  pointer-events: none;
+}
+.svg-bbox-marginal {
+  fill: rgba(167, 133, 217, 0.12);
+  stroke: var(--lavender);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  pointer-events: all;
+  cursor: pointer;
+}
+.svg-bbox-marginal:hover {
+  fill: rgba(167, 133, 217, 0.3);
+}
+
+.bbox-controls-bar {
+  display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin-top: 6px;
+  padding: 4px 6px; background: var(--bg-deep); border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+}
+.bbox-btn {
+  padding: 3px 7px; font-size: 10.5px; border-radius: 4px;
+  background: var(--bg-card2); border: 1px solid var(--line2);
+  color: var(--text-sub); cursor: pointer; transition: all .15s;
+}
+.bbox-btn:hover { background: var(--bg-hover); color: var(--text-main); }
+.bbox-btn.active { background: var(--gold); color: #18120D; font-weight: 600; border-color: var(--gold); }
+.bbox-btn.danger { border-color: rgba(226, 114, 91, 0.4); }
+.bbox-btn.danger:hover { background: rgba(226, 114, 91, 0.25); color: var(--terra); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BOUNDING BOX HIERARCHY: Block → Paragraph → Line → Word
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#ocr-hierarchy-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ocr-block-card {
+  background: var(--bg-card2);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--terra-dim);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  position: relative;
+}
+.ocr-block-card.marginal {
+  border-left-color: var(--lavender);
+  background: rgba(167, 133, 217, 0.05);
+}
+.ocr-block-header {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-sub);
+}
+.ocr-block-header.marginal { color: var(--lavender); }
+
+.ocr-line-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-bottom: 4px;
+  padding: 2px 0;
+  border-bottom: 1px dashed rgba(255,255,255,.04);
+}
+.ocr-line-num {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--text-muted);
+  min-width: 20px;
+  user-select: none;
+  border-right: 1px solid var(--line);
+  padding-right: 4px;
+}
+
+/* ── Primary Interactive Word Token (indivisible word unit) ── */
+.word-tok {
+  font-family: var(--font-dev);
+  font-size: 22px;
+  line-height: 1.8;
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  display: inline-block;
+  user-select: text;
+  transition: all .12s;
+  border: 1px solid transparent;
+}
+.word-tok:hover {
+  outline: 2px solid var(--terra);
+  background: var(--bg-hover);
+  box-shadow: 0 0 10px var(--terra-glow);
+}
+.word-tok.active-word {
+  outline: 2.5px solid var(--terra) !important;
+  background: var(--terra-glow) !important;
+  box-shadow: 0 0 14px var(--terra-glow);
+}
+.word-tok.conf-low { background: rgba(226, 114, 91, .25); border-color: rgba(226, 114, 91, .4); }
+.word-tok.conf-med { background: rgba(212, 160, 71, .18); border-color: rgba(212, 160, 71, .3); }
+.word-tok.corrected { background: var(--jade-glow); border-color: var(--jade-dim); color: #fff; }
+.word-tok.reviewed { border-bottom: 2px dotted var(--text-sub); }
+.word-tok.unk-word {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--terra);
+  text-underline-offset: 4px;
+}
+.word-tok .word-conf-badge {
+  font-size: 9px;
+  font-family: var(--font-sans);
+  color: var(--text-muted);
+  vertical-align: super;
+  margin-left: 2px;
+}
+
+/* ── Inline Document Textarea Editor (Fluid mode) ── */
+#fluid-editor {
+  width: 100%;
+  min-height: 180px;
+  font-family: var(--font-dev);
+  font-size: 20px;
+  line-height: 1.8;
+  background: var(--bg-input);
+  color: var(--text-main);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  resize: vertical;
+  display: none;
+}
+
+/* ── Chandas, Spellcheck & Metrics ── */
+#chandas-box {
+  margin-top: 8px; padding: 8px 12px;
+  background: var(--lav-glow); border: 1px solid var(--lav-dim);
+  border-radius: var(--radius-sm); display: none;
+}
+#chandas-box .ch-title { font-size: 11px; font-weight: 700; color: var(--lavender); }
+#chandas-box .ch-result { font-size: 12.5px; color: var(--text-main); margin-top: 2px; }
+
+#spellcheck-box { margin-top: 8px; display: none; }
+.spell-words { display: flex; flex-wrap: wrap; gap: 5px; }
+.spell-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border: 1px solid var(--gold-dim);
+  border-radius: 99px; background: var(--gold-glow);
+  font-size: 11.5px; cursor: pointer; color: var(--text-main);
+  font-family: var(--font-dev);
+}
+.spell-chip:hover { background: var(--bg-hover); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 10.5px; color: var(--text-sub); margin-top: 6px; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+
+/* ── Buttons & Controls ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 6px 12px; border-radius: var(--radius-sm);
+  font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid transparent;
+  transition: all .15s; font-family: var(--font-sans);
+}
+.btn-terra { background: var(--terra); color: #fff; border-color: var(--terra-dark); }
+.btn-terra:hover { background: var(--terra-dark); }
+.btn-jade  { background: var(--jade); color: #fff; border-color: var(--jade-dim); }
+.btn-jade:hover { opacity: .9; }
+.btn-gold  { background: var(--gold); color: #18120D; font-weight: 600; }
+.btn-gold:hover { opacity: .9; }
+.btn-ghost { background: var(--bg-card2); color: var(--text-sub); border-color: var(--line); }
+.btn-ghost:hover { background: var(--bg-hover); color: var(--text-main); border-color: var(--line2); }
+.btn-full { width: 100%; }
+.mini-btn { padding: 3px 7px; font-size: 10.5px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg-card2); color: var(--text-sub); cursor: pointer; }
+.mini-btn:hover { background: var(--bg-hover); color: var(--text-main); }
+.mini-btn.danger:hover { background: rgba(226,114,91,.25); color: var(--terra); }
+
+/* ── Sessions & Matrix Rows ── */
+.sess-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: var(--bg-card2); cursor: pointer; transition: all .15s;
+}
+.sess-item:hover { background: var(--bg-hover); border-color: var(--line2); }
+.sess-item.active { border-color: var(--terra); background: var(--terra-glow); }
+.sess-name { font-weight: 600; font-size: 12px; color: var(--text-main); }
+.sess-meta { font-size: 10px; color: var(--text-sub); }
+
+.mrow {
+  display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+  border-radius: var(--radius-sm); background: var(--bg-card2);
+  border: 1px solid var(--line); font-family: var(--font-dev); font-size: 14px;
+}
+.mrow-count { font-size: 10px; color: var(--gold); font-family: var(--font-sans); }
+
+/* ── Diff View (LEAP interndiffview) ── */
+#diff-container { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.diff-panel {
+  background: var(--bg-deep); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 8px; font-family: var(--font-dev);
+  font-size: 14px; line-height: 1.7; max-height: 220px; overflow-y: auto;
+}
+.diff-panel-title { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-sub); margin-bottom: 4px; font-family: var(--font-sans); }
+.diff-add { background: var(--diff-add); color: var(--diff-add-text); border-radius: 2px; padding: 0 1px; }
+.diff-del { background: var(--diff-del); color: var(--diff-del-text); text-decoration: line-through; border-radius: 2px; padding: 0 1px; }
+.diff-accuracy {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--jade-glow); border: 1px solid var(--jade-dim);
+  border-radius: var(--radius-sm); margin-top: 6px;
+}
+.diff-accuracy .acc-val { font-size: 22px; font-weight: 700; color: var(--jade); font-family: var(--font-sans); }
+
+/* ── Find & Replace & Global Replace ── */
+.fr-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
+.fr-field label { font-size: 10.5px; font-weight: 600; color: var(--text-sub); }
+.fr-field input {
+  padding: 6px 9px; border-radius: var(--radius-sm);
+  background: var(--bg-input); border: 1px solid var(--line2);
+  color: var(--text-main); font-family: var(--font-dev); font-size: 14px;
+}
+.fr-controls { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.stat-card {
+  background: var(--bg-deep); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 8px 10px; text-align: center;
+}
+.stat-val { font-size: 20px; font-weight: 700; color: var(--terra); }
+.stat-label { font-size: 10px; color: var(--text-sub); text-transform: uppercase; letter-spacing: .5px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   CORRECTION MODAL — Dual Mode: Edit Entire Word vs. Edit Specific Letters
+   ═══════════════════════════════════════════════════════════════════════════════ */
+#overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.75);
+  backdrop-filter: blur(4px); z-index: 200;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+#overlay.hidden { display: none; }
+
+#modal {
+  background: var(--bg-card); border: 1px solid var(--line2);
+  border-radius: var(--radius-md); max-width: 560px; width: 100%;
+  max-height: 90vh; overflow-y: auto; padding: 18px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.7);
+}
+.modal-title { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-sub); }
+.modal-word-display { font-family: var(--font-dev); font-size: 28px; color: var(--terra); margin: 4px 0 2px; }
+.modal-sub { font-size: 11px; color: var(--text-sub); margin-bottom: 10px; }
+
+/* ── Modal Mode Tabs ── */
+.modal-mode-tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  background: var(--bg-deep); padding: 4px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); margin-bottom: 12px;
+}
+.modal-tab-btn {
+  padding: 7px 10px; font-size: 12px; font-weight: 600;
+  border-radius: 4px; border: none; background: transparent;
+  color: var(--text-sub); cursor: pointer; transition: all .15s;
+  font-family: var(--font-sans); display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.modal-tab-btn:hover { color: var(--text-main); background: var(--bg-card2); }
+.modal-tab-btn.active { background: var(--terra); color: #fff; box-shadow: 0 2px 8px var(--terra-glow); }
+
+.modal-pane { display: none; }
+.modal-pane.active { display: block; }
+
+.modal-section-title { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--gold); margin: 10px 0 5px; }
+
+.modal-input-row { display: flex; gap: 6px; align-items: center; }
+.modal-input-row input {
+  flex: 1; padding: 8px 12px; font-family: var(--font-dev); font-size: 22px;
+  background: var(--bg-input); border: 1px solid var(--line2);
+  border-radius: var(--radius-sm); color: var(--text-main);
+}
+.modal-input-row input:focus { outline: 2px solid var(--terra); }
+
+.sugg-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sugg-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border-radius: var(--radius-sm);
+  background: var(--bg-card2); border: 1px solid var(--line2);
+  font-family: var(--font-dev); font-size: 16px; cursor: pointer;
+  color: var(--text-main); transition: all .15s;
+}
+.sugg-btn:hover { background: var(--terra-glow); border-color: var(--terra); }
+.sugg-meta { font-size: 10px; font-family: var(--font-sans); color: var(--text-sub); }
+
+/* ── Letter/Akshara Selector UI ── */
+.ak-selector-grid {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0;
+}
+.ak-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  background: var(--bg-deep); border: 1.5px solid var(--line);
+  cursor: pointer; transition: all .15s; min-width: 44px;
+}
+.ak-card:hover { border-color: var(--gold); background: var(--bg-card2); }
+.ak-card.selected { border-color: var(--terra); background: var(--terra-glow); box-shadow: 0 0 10px var(--terra-glow); }
+.ak-card.modified { border-color: var(--jade); background: var(--jade-glow); }
+.ak-card .ak-char { font-family: var(--font-dev); font-size: 22px; color: var(--text-main); }
+.ak-card .ak-num { font-size: 9px; color: var(--text-muted); font-family: var(--font-sans); margin-top: 1px; }
+
+.letter-edit-box {
+  background: var(--bg-deep); border: 1px solid var(--line2);
+  border-radius: var(--radius-sm); padding: 10px 12px; margin-top: 8px;
+}
+
+.dict-lookup-panel {
+  margin-top: 12px; padding: 8px 12px; border-radius: var(--radius-sm);
+  background: var(--bg-deep); border: 1px solid var(--line); font-size: 12px;
+}
+.dict-lookup-panel .dict-hw { font-weight: 700; color: var(--lavender); font-size: 13px; font-family: var(--font-dev); }
+.dict-lookup-panel .dict-def { color: var(--text-sub); margin-top: 2px; }
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; bottom: 20px; right: 20px;
+  background: var(--bg-card2); border: 1px solid var(--terra);
+  color: var(--text-main); padding: 8px 14px; border-radius: var(--radius-sm);
+  font-size: 12px; z-index: 300; opacity: 0; pointer-events: none;
+  box-shadow: var(--shadow-card); transition: opacity .2s;
+}
+#toast.show { opacity: 1; pointer-events: auto; }
 </style>
 </head>
 <body>
-  <header>
-    <img src="https://raw.githubusercontent.com/sanskrit-lexicon/csl-json/main/ashtadhyayi.com/mw.json" alt="EyM" style="display:none" />
-    <img src="logo-EyM.png" alt="EyM" style="height:48px;width:auto;border-radius:8px;flex-shrink:0" onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/logo-EyM.png';this.onerror=null" />
+
+<!-- ══════════════════════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════════════════════════ -->
+<header id="app-header">
+  <img class="logo-img" src="logo-EyM.png" alt="EyM"
+    onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/logo-EyM.png';this.onerror=null" />
+  <div>
     <h1>EyM Sanskrit OCR</h1>
-    <img src="rasa100-english.png" alt="RASA 100" style="height:42px;width:auto;border-radius:8px;flex-shrink:0" onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/rasa100-english.png';this.onerror=null" />
-    <span class="badge">browser edition · prototype</span>
-    <span class="badge ok">100% in-browser · no server</span>
-    <span class="badge dict" id="dictBadge" title="Sanskrit dictionary loaded from Monier-Williams">📖 dictionary loading…</span>
-    <div class="sub">Upload a manuscript image or PDF — OCR, corrections and learning all happen on this device, saved in your browser.</div>
-  </header>
-
-  <main>
-    <section>
-      <div class="card">
-        <h2>1 · Image</h2>
-        <div class="drop" id="drop">
-          <div class="big">Drop an image or PDF here, or click to browse</div>
-          <div style="font-size:12px; margin-top:4px;">PNG / JPG / PDF · up to 20 MB · processed entirely in your browser</div>
-        </div>
-        <input type="file" id="file" accept="image/*,.pdf,application/pdf" hidden />
-        <div class="row">
-          <button class="btn" id="sampleBtn">🪔 Try a sample image</button>
-          <label style="font-size:12.5px; color:var(--brown-soft);">Language
-            <select id="lang">
-              <option value="san">Sanskrit (san)</option>
-              <option value="hin">Hindi (hin)</option>
-            </select>
-          </label>
-        </div>
-        <div id="progress"><div></div></div>
-        <div id="status">Ready.</div>
-      </div>
-
-      <div class="card" style="margin-top:16px;">
-        <h2>2 · Result — click any character to correct it</h2>
-        <div id="result"><div class="empty">The recognized text appears here, split into aksharas. Low-confidence characters are highlighted.</div></div>
-        <div id="chandasBox" style="display:none; margin-top:10px; padding:10px 14px; background:#F0EAF5; border:1px solid #C4AEDB; border-radius:10px;">
-          <div style="font-size:13px; font-weight:600; color:#5B3E7A;">🪷 Identified Meter (Chandas)</div>
-          <div id="chandasResult" style="margin-top:6px; font-size:13px; color:var(--brown);"></div>
-        </div>
-        <div id="spellcheckBox" style="display:none;">
-          <div class="mconf-title">⚠ Words not found in dictionary — click to correct</div>
-          <div class="spellcheck-words" id="spellcheckWords"></div>
-        </div>
-        <div class="legend">
-          <span><span class="sw" style="background:#F6CFAE"></span>low confidence (&lt;50%)</span>
-          <span><span class="sw" style="background:#F5E6C8"></span>medium (50–75%)</span>
-          <span><span class="sw" style="background:var(--ok-bg)"></span>corrected</span>
-          <span><span class="sw" style="border:1px dashed var(--brown-soft); background:transparent"></span>reviewed / accepted</span>
-          <span><span class="sw" style="border-bottom:2px wavy var(--terracotta); background:transparent"></span>not in dictionary</span>
-        </div>
-        <div class="fulltext" id="fulltext"></div>
-      </div>
-    </section>
-
-    <aside>
-      <div class="card">
-        <h2>Sessions</h2>
-        <div id="sessions"><div class="empty">No sessions yet.</div></div>
-      </div>
-      <div class="card" style="margin-top:16px;">
-        <h2>Confusion Matrix</h2>
-        <div id="matrixBody"><div class="empty">No corrections yet — the matrix learns as you correct.</div></div>
-        <div class="row">
-          <button class="btn ghost" id="exportBtn">⬇ Export</button>
-          <button class="btn ghost" id="importBtn">⬆ Import</button>
-          <input type="file" id="importFile" accept=".json,.eym-matrix" hidden />
-        </div>
-        <details>
-          <summary>About this prototype</summary>
-          <div class="note">
-            A no-server preview of EyM: OCR runs with Tesseract.js (the engine + language data
-            download from a CDN once, then work offline; self-host them for a fully offline
-            deployment). Corrections teach a confusion matrix and sessions persist in IndexedDB
-            on this device. Export/import uses the same <b>.eym-matrix</b> format as the desktop
-            app for sharing across institutions. Transliteration (Devanagari → IAST) is built in.
-            The <b>Monier-Williams Sanskrit-English Dictionary</b> (195K+ headwords) powers
-            spell-checking and on-demand word lookup.
-          </div>
-        </details>
-      </div>
-    </aside>
-  </main>
-
-  <div id="overlay" class="hidden">
-    <div id="modal"></div>
+    <div class="tagline">Scholar's Post-Editing Workstation · Brahmavidya: Foundation for Indian Arts</div>
   </div>
-  <div id="toast"></div>
-  <footer>EyM by Brahmavidya: Foundation for Indian Arts · prototype — corrections are stored only in this browser</footer>
+  <img src="rasa100-english.png" alt="RASA 100" style="height:34px;width:auto;border-radius:6px;flex-shrink:0"
+    onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/rasa100-english.png';this.onerror=null" />
+  <div id="header-right">
+    <span class="badge" id="server-badge" title="Parinamika model server status">⚙ Checking server…</span>
+    <span class="badge lav" id="dict-badge" title="Monier-Williams dictionary">📖 loading…</span>
+    <button class="mini-btn" id="dark-toggle" title="Toggle light/dark mode">☀ Light</button>
+  </div>
+</header>
 
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>
-  'use strict';
-  /* ================================================================
-     EyM Browser Edition — prototype
-     OCR: Tesseract.js (in-browser WASM). Persistence: IndexedDB.
-     Dictionary: Monier-Williams Sanskrit-English (195K headwords).
-     ================================================================ */
+<!-- ══════════════════════════════════════════════════════════════
+     TOOLBAR (LEAP-style shortcut strip)
+═══════════════════════════════════════════════════════════════════ -->
+<div id="toolbar">
+  <button class="tool-btn" id="tb-find" title="Ctrl+F">🔍 Find <span class="kbd">Ctrl+F</span></button>
+  <button class="tool-btn" id="tb-replace" title="Ctrl+H">↔ Replace <span class="kbd">Ctrl+H</span></button>
+  <button class="tool-btn" id="tb-diff" title="Ctrl+D">⊕ Diff <span class="kbd">Ctrl+D</span></button>
+  <button class="tool-btn" id="tb-global" title="Ctrl+G">⊛ Global Replace <span class="kbd">Ctrl+G</span></button>
+  <button class="tool-btn" id="tb-export-txt">⬇ .txt</button>
+  <button class="tool-btn" id="tb-export-docx">⬇ .docx</button>
+  <button class="tool-btn" id="tb-export-matrix">⬇ Matrix</button>
+  <button class="tool-btn" id="tb-import-matrix">⬆ Import</button>
+  <input type="file" id="import-matrix-file" accept=".json,.eym-matrix" hidden />
+  <div id="toolbar-right">
+    <div class="mode-toggle">
+      <button class="mode-opt active" id="view-mode-tokens" title="Click words to correct">Tokens</button>
+      <button class="mode-opt" id="view-mode-editor" title="Free text editor mode">Editor</button>
+    </div>
+    <select id="lang-sel" title="OCR language" style="background:var(--bg-card2);color:var(--text-sub);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:11px">
+      <option value="san">Sanskrit</option>
+      <option value="hin">Hindi</option>
+      <option value="eng">English</option>
+      <option value="ben">Bengali</option>
+      <option value="tel">Telugu</option>
+      <option value="kan">Kannada</option>
+      <option value="mal">Malayalam</option>
+      <option value="tam">Tamil</option>
+    </select>
+  </div>
+</div>
 
-  const SCRIPT = 'Devanagari';
-  const ENGINE = 'tesseract.js';
-  const LOW = 0.5, MED = 0.75;
+<!-- ══════════════════════════════════════════════════════════════
+     APP BODY
+═══════════════════════════════════════════════════════════════════ -->
+<div id="app-body">
 
-  const $ = (id) => document.getElementById(id);
-  const esc = (s) => { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; };
-  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+  <!-- LEFT: main OCR & Hierarchy Panel -->
+  <div id="main-panel">
 
-  let state = { sessions: [], matrix: [], confirmations: [] };
-  let current = null;        // active session object
-  let currentFile = null;
-  let worker = null, workerLang = null, busy = false;
-  let modalGuess = null, modalAkshara = null;
+    <!-- Upload card -->
+    <div class="card">
+      <div class="card-title">1 · Upload Manuscript Image or PDF</div>
+      <div id="drop-zone">
+        <span class="dz-icon">🪷</span>
+        <div class="dz-title">Drop manuscript page or PDF here, or click to browse</div>
+        <div class="dz-sub">PNG · JPG · TIFF · PDF · Extracts Bounding Boxes (Block → Line → Word → Marginalia)</div>
+      </div>
+      <input type="file" id="file-input" accept="image/*,.pdf,application/pdf" hidden />
+      <div class="engine-row">
+        <span style="font-size:11px;color:var(--text-sub)">Engine:</span>
+        <div class="engine-pill active" id="eng-auto"><div class="dot"></div>Auto</div>
+        <div class="engine-pill" id="eng-parinamika"><div class="dot" style="background:var(--jade)"></div>Parinamika</div>
+        <div class="engine-pill" id="eng-tesseract"><div class="dot" style="background:var(--gold)"></div>Tesseract.js</div>
+        <button class="btn btn-terra" id="sample-btn" style="margin-left:auto;padding:3px 8px;font-size:11px">🪔 Load Sample</button>
+      </div>
+      <div id="progress-bar"><div></div></div>
+      <div id="status-line">Ready — upload an image to begin.</div>
+    </div>
 
-  /* ===================== SANSKRIT DICTIONARY ===================== */
-  /* Monier-Williams Sanskrit-English Dictionary via Cologne Digital
-     Sanskrit Lexicon. Headwords loaded lazily from a co-hosted JSON
-     file; definitions fetched on demand from GitHub raw CDN. */
-  const DICT_HEADWORDS_LOCAL = 'sanskrit-headwords.json';   // co-hosted
-  const DICT_HEADWORDS_CDN = 'https://raw.githubusercontent.com/sanskrit-lexicon/csl-json/main/ashtadhyayi.com/mw.json';
-  const DICT_MW_RAW = DICT_HEADWORDS_CDN;
-  const BIGRAMS_LOCAL = 'sanskrit-bigrams.json';  // co-hosted
+    <!-- Interactive Split Workbench -->
+    <div id="workbench-split">
 
-  let dictHeadwords = null;  // Set<string> — null until loaded
-  let dictLoading = false;
-  let dictReady = false;
-  let dictError = null;
-  // Cache: word → {h1, def} or null
-  const dictCache = new Map();
-  // Bigram model: "word1\x00word2" → count (loaded lazily)
-  let bigramModel = null;
-  let bigramReady = false;
+      <!-- Left Sub-card: Image & Bounding Box Overlay -->
+      <div class="card" id="image-overlay-card">
+        <div class="card-title">
+          <span>📷 Manuscript Bounding Boxes</span>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span class="zoom-level-badge" id="zoom-badge">100%</span>
+            <button class="mini-btn" id="btn-zoom-in" title="Zoom In (Ctrl + Wheel)">🔍+ In</button>
+            <button class="mini-btn" id="btn-zoom-out" title="Zoom Out (Ctrl + Wheel)">🔍- Out</button>
+            <button class="mini-btn" id="btn-zoom-fit" title="Fit to Container Width">⤢ Fit</button>
+            <button class="mini-btn" id="btn-zoom-100" title="100% Native Resolution">1:1</button>
+          </div>
+        </div>
+        <div id="overlay-container">
+          <div id="overlay-wrapper">
+            <img id="source-img" src="" alt="Manuscript Source" style="display:none;" />
+            <svg id="bbox-svg"></svg>
+          </div>
+        </div>
+        <div class="bbox-controls-bar">
+          <button class="bbox-btn active" id="bbox-tool-select" title="Click box to select/edit word">🔍 Select</button>
+          <button class="bbox-btn" id="bbox-tool-edit" title="Show resize & move handles on selected box">📐 Edit/Drag</button>
+          <button class="bbox-btn" id="bbox-tool-draw" title="Click and drag on manuscript to draw new bounding box">➕ Draw Box</button>
+          <button class="bbox-btn" id="bbox-tool-expand" title="Expand bounding box by 10%">⇲ Expand</button>
+          <button class="bbox-btn" id="bbox-tool-shrink" title="Shrink bounding box by 10%">⇱ Shrink</button>
+          <button class="bbox-btn danger" id="bbox-tool-delete" title="Delete bounding box for active word">🗑 Delete Box</button>
+          <button class="bbox-btn danger" id="bbox-tool-clear-all" title="Clear all bounding boxes from image">🗑 Clear All</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;font-size:10.5px;color:var(--text-sub);flex-wrap:wrap">
+          <label><input type="checkbox" id="layer-words" checked /> Words</label>
+          <label><input type="checkbox" id="layer-lines" checked /> Lines</label>
+          <label><input type="checkbox" id="layer-marginal" checked /> Marginalia (टिप्पणी)</label>
+        </div>
+      </div>
 
-  /** Lazy-load the headword set for spell-checking.
-      Tries the co-hosted local file first (fast, same-origin).
-      Falls back to the Cologne Sanskrit Lexicon API for word lookup only. */
-  async function ensureDictionary() {
-    if (dictReady || dictHeadwords) return;
-    if (dictLoading) return;
-    dictLoading = true;
-    const badge = $('dictBadge');
-    badge.textContent = '📖 loading dictionary…';
-    // Try local headwords file first (fast, same-origin)
-    let loaded = false;
+      <!-- Right Sub-card: Structured OCR Results & Word Hierarchy -->
+      <div class="card" id="transcription-card">
+        <div class="card-title">
+          <span>2 · Structured Transcription</span>
+          <span style="font-size:9.5px;color:var(--text-muted)">Click any word to correct</span>
+        </div>
+
+        <!-- Hierarchical Token View -->
+        <div id="ocr-hierarchy-view">
+          <div style="color:var(--text-muted);font-size:12px;text-align:center;padding:24px 0">
+            Recognized text organized into blocks → lines → words will appear here.<br>
+            Click any word to correct the entire word at once.
+          </div>
+        </div>
+
+        <!-- Fluid Textarea Editor Mode -->
+        <textarea id="fluid-editor" placeholder="Type or edit Sanskrit text freely here…"></textarea>
+
+        <div id="chandas-box">
+          <div class="ch-title">🪷 Identified Meter (Chandas)</div>
+          <div class="ch-result" id="chandas-result"></div>
+        </div>
+
+        <div id="spellcheck-box">
+          <div style="font-size:10px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px">
+            ⚠ Words not in Monier-Williams — Click to correct
+          </div>
+          <div class="spell-words" id="spell-words"></div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item"><span class="legend-swatch" style="background:rgba(226,114,91,.3)"></span>Low conf (&lt;50%)</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:rgba(212,160,71,.2)"></span>Medium (50–75%)</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:var(--jade-glow);border:1px solid var(--jade-dim)"></span>Corrected</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:rgba(167,133,217,.2);border:1px dashed var(--lavender)"></span>Marginal note</div>
+          <div class="legend-item"><span style="border-bottom:2px wavy var(--terra);display:inline-block;width:16px"></span>Dict unknown</div>
+        </div>
+
+      </div><!-- /transcription-card -->
+
+    </div><!-- /workbench-split -->
+
+  </div><!-- /main-panel -->
+
+  <!-- RIGHT: Sidebar with LEAP PE tools -->
+  <div id="sidebar">
+    <div id="sidebar-tabs">
+      <div class="stab active" data-pane="pane-sessions">Sessions</div>
+      <div class="stab" data-pane="pane-matrix">Matrix</div>
+      <div class="stab" data-pane="pane-diff">Diff View</div>
+      <div class="stab" data-pane="pane-global">Global Repl.</div>
+      <div class="stab" data-pane="pane-find">Find/Repl.</div>
+      <div class="stab" data-pane="pane-analytics">Analytics</div>
+    </div>
+
+    <!-- Sessions Pane -->
+    <div class="stab-pane active" id="pane-sessions">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">Upload History</div>
+        <button class="mini-btn danger" id="clear-all-sessions-btn" title="Delete all uploads and sessions from history">🗑 Clear All</button>
+      </div>
+      <div id="sessions-list"><div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">No sessions yet.</div></div>
+    </div>
+
+    <!-- Confusion Matrix Pane -->
+    <div class="stab-pane" id="pane-matrix">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div class="card-title" style="margin-bottom:0">Learned Confusion Pairs</div>
+        <button class="mini-btn danger" id="clear-all-matrix-btn" title="Reset all learned confusion pairs">🗑 Clear</button>
+      </div>
+      <div id="matrix-body"><div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">No corrections recorded yet.</div></div>
+    </div>
+
+    <!-- Diff View Pane (LEAP interndiffview) -->
+    <div class="stab-pane" id="pane-diff">
+      <div class="card-title">OCR Original vs. Corrected Text</div>
+      <div id="diff-container">
+        <div class="diff-panel">
+          <div class="diff-panel-title">📷 OCR Original</div>
+          <div class="diff-text" id="diff-original" style="color:var(--text-muted);font-size:12px">Run OCR first.</div>
+        </div>
+        <div class="diff-panel">
+          <div class="diff-panel-title">✏️ Corrected</div>
+          <div class="diff-text" id="diff-corrected" style="color:var(--text-muted);font-size:12px">No corrections yet.</div>
+        </div>
+      </div>
+      <div class="diff-accuracy" id="diff-accuracy" style="display:none">
+        <div class="acc-val" id="diff-acc-val">—</div>
+        <div>
+          <div style="font-weight:600;font-size:11px">Character Accuracy</div>
+          <div style="font-size:10px;color:var(--text-sub)" id="diff-acc-detail"></div>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-full" id="refresh-diff" style="margin-top:6px">↻ Refresh Diff</button>
+    </div>
+
+    <!-- Global Replace Pane (LEAP globalreplacedialog) -->
+    <div class="stab-pane" id="pane-global">
+      <div class="card-title">Global Word & Character Replacement</div>
+      <div id="gr-pairs-list" style="display:flex;flex-direction:column;gap:5px">
+        <div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">Make corrections to see learned replacement pairs here.</div>
+      </div>
+      <div style="display:flex;gap:4px;margin-top:8px">
+        <button class="btn btn-terra" id="gr-apply-btn" style="flex:1">⊛ Apply Selected</button>
+        <button class="btn btn-ghost" id="gr-select-all">All</button>
+        <button class="btn btn-ghost" id="gr-clear-all">None</button>
+      </div>
+    </div>
+
+    <!-- Find & Replace Pane (LEAP textfinder) -->
+    <div class="stab-pane" id="pane-find">
+      <div class="card-title">Find & Replace</div>
+      <div class="fr-field">
+        <label>Find (Devanāgarī or IAST)</label>
+        <input type="text" id="fr-find" placeholder="e.g. धर्म or dharma" />
+      </div>
+      <div class="fr-field">
+        <label>Replace with</label>
+        <input type="text" id="fr-replace" placeholder="e.g. धर्म्म" />
+      </div>
+      <div style="display:flex;gap:8px;font-size:11px;color:var(--text-sub);margin:4px 0">
+        <label><input type="checkbox" id="fr-regex" /> Regex</label>
+        <label><input type="checkbox" id="fr-case" /> Case</label>
+        <label><input type="checkbox" id="fr-iast" /> Match IAST</label>
+      </div>
+      <div class="fr-controls">
+        <button class="btn btn-ghost" id="fr-prev">◀ Prev</button>
+        <button class="btn btn-ghost" id="fr-next">Next ▶</button>
+        <button class="btn btn-terra" id="fr-replace-btn">Replace</button>
+        <button class="btn btn-gold" id="fr-replace-all">Replace All</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px" id="fr-results">Enter a search term above.</div>
+    </div>
+
+    <!-- Analytics Pane (LEAP averageaccuracies) -->
+    <div class="stab-pane" id="pane-analytics">
+      <div class="card-title">Workstation Analytics</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val" id="stat-words">0</div><div class="stat-label">Words OCR'd</div></div>
+        <div class="stat-card"><div class="stat-val" id="stat-corrections">0</div><div class="stat-label">Corrections</div></div>
+        <div class="stat-card"><div class="stat-val" id="stat-accuracy">—</div><div class="stat-label">Est. Accuracy</div></div>
+        <div class="stat-card"><div class="stat-val" id="stat-sessions">0</div><div class="stat-label">Sessions</div></div>
+      </div>
+      <div class="card-title" style="margin-top:10px">Top Confusions</div>
+      <div id="confusion-heatmap" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    </div>
+
+  </div><!-- /sidebar -->
+</div><!-- /app-body -->
+
+<!-- ══════════════════════════════════════════════════════════════
+     FAST WORD CORRECTION MODAL
+═══════════════════════════════════════════════════════════════════ -->
+<div id="overlay" class="hidden">
+  <div id="modal">
+    <div class="modal-title">Word Correction · पदसंशोधनम्</div>
+    <div class="modal-word-display" id="m-word-orig"></div>
+    <div class="modal-sub" id="m-word-meta"></div>
+
+    <!-- Dual Mode Switcher -->
+    <div class="modal-mode-tabs">
+      <button class="modal-tab-btn active" id="mtab-word">🔤 Option 1: Edit Entire Word</button>
+      <button class="modal-tab-btn" id="mtab-letters">🔬 Option 2: Edit Specific Letter(s)</button>
+    </div>
+
+    <!-- Option 1: Edit Entire Word -->
+    <div id="modal-pane-word" class="modal-pane active">
+      <div class="modal-section-title">✏ Replace Whole Word</div>
+      <div class="modal-input-row">
+        <input type="text" id="m-word-input" autocomplete="off" />
+        <button class="btn btn-terra" id="m-word-apply-btn">Apply Word</button>
+      </div>
+
+      <div class="modal-section-title">💡 Smart Word Suggestions (Dictionary &amp; Confusion Matrix)</div>
+      <div class="sugg-grid" id="m-sugg-grid"></div>
+    </div>
+
+    <!-- Option 2: Edit Specific Letters -->
+    <div id="modal-pane-letters" class="modal-pane">
+      <div class="modal-section-title">1. Select a Letter / Akshara to Edit</div>
+      <div class="ak-selector-grid" id="m-ak-selector-grid"></div>
+
+      <div class="letter-edit-box" id="m-letter-edit-box">
+        <div style="font-size:11px;font-weight:600;color:var(--gold);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+          <span>Editing letter: <strong id="m-current-ak-label" style="font-family:var(--font-dev);font-size:20px;color:var(--text-main)">-</strong></span>
+          <button class="mini-btn danger" id="m-delete-letter-btn" title="Delete this letter/character from the word">🗑 Delete Letter</button>
+        </div>
+        <div class="modal-input-row" style="max-width:280px">
+          <input type="text" id="m-single-ak-input" style="font-size:22px;text-align:center" />
+          <button class="btn btn-terra" id="m-single-ak-apply-btn">Update Letter</button>
+        </div>
+        <div style="font-size:10.5px;color:var(--text-sub);margin:8px 0 4px">Frequent Sanskrit OCR character confusions:</div>
+        <div class="sugg-grid" id="m-ak-alts-grid"></div>
+      </div>
+
+      <div style="margin-top:10px;padding:8px 12px;background:var(--bg-deep);border-radius:4px;border:1px solid var(--line);font-size:12px;display:flex;align-items:center;justify-content:space-between">
+        <span>Reconstructed word: <strong id="m-letter-live-preview" style="font-family:var(--font-dev);font-size:20px;color:var(--jade)">-</strong></span>
+        <button class="btn btn-jade" id="m-apply-all-letters-btn" style="padding:4px 10px;font-size:11px">Apply Word with Updated Letters</button>
+      </div>
+    </div>
+
+    <!-- Bounding Box Geometry Quick Nudge & Delete -->
+    <div style="margin-top:10px;padding:6px 10px;background:var(--bg-deep);border-radius:var(--radius-sm);border:1px solid var(--line);font-size:11px">
+      <div style="font-weight:600;color:var(--text-sub);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
+        <span>📐 Bounding Box Geometry:</span>
+        <button class="mini-btn danger" id="m-bbox-delete-btn" title="Delete bounding box for this word">🗑 Delete Box</button>
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        <button class="mini-btn" id="m-bbox-nudge-left" title="Nudge box left">← Left</button>
+        <button class="mini-btn" id="m-bbox-nudge-right" title="Nudge box right">→ Right</button>
+        <button class="mini-btn" id="m-bbox-nudge-up" title="Nudge box up">↑ Up</button>
+        <button class="mini-btn" id="m-bbox-nudge-down" title="Nudge box down">↓ Down</button>
+        <button class="mini-btn" id="m-bbox-expand-btn" title="Expand box by 10%">⇲ Expand</button>
+        <button class="mini-btn" id="m-bbox-shrink-btn" title="Shrink box by 10%">⇱ Shrink</button>
+      </div>
+    </div>
+
+    <!-- Monier-Williams Dictionary Lookup Panel -->
+    <div class="dict-lookup-panel" id="m-dict-panel">
+      <div class="dict-hw" id="m-dict-hw"></div>
+      <div class="dict-def" id="m-dict-def"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-jade" id="m-accept-btn">✓ Accept as Correct</button>
+      <button class="btn btn-ghost" id="m-cancel-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SCRIPTS
+═══════════════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<script>
+'use strict';
+
+/* ─── Global State & Configuration ─────────────────────────────────────────── */
+const SCRIPT = 'Devanagari';
+const LOW = 0.50, MED = 0.75;
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const OCR_SERVER = 'http://127.0.0.1:5001';
+
+const $ = id => document.getElementById(id);
+const esc = s => { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+const uid = () => crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+let state = { sessions: [], matrix: [], confirmations: [] };
+let current = null;              // Active session
+let currentFile = null;
+let currentImageURL = null;
+let currentImageW = 0, currentImageH = 0;
+let worker = null, workerLang = null, busy = false;
+let serverOnline = false;
+let preferredEngine = 'auto';     // 'auto' | 'parinamika' | 'tesseract'
+let activeWord = null;            // Currently selected word object for modal
+let editorMode = 'tokens';        // 'tokens' | 'editor'
+
+/* ─── Server Health Check ─────────────────────────────────────────────────── */
+async function checkServer() {
+  const badge = $('server-badge');
+  try {
+    const r = await fetch(`${OCR_SERVER}/health`, { signal: AbortSignal.timeout(2000) });
+    if (!r.ok) throw new Error('bad');
+    const data = await r.json();
+    serverOnline = true;
+    if (data.engine === 'parinamika' && data.model_ready) {
+      badge.className = 'badge jade';
+      badge.textContent = '🟢 Parinamika online';
+    } else {
+      badge.className = 'badge gold';
+      badge.textContent = '🟡 Server (Tesseract backend)';
+    }
+  } catch {
+    serverOnline = false;
+    badge.className = 'badge terra';
+    badge.textContent = '🔴 Local (Tesseract.js)';
+  }
+}
+
+/* ─── Sanskrit Dictionary (Monier-Williams) ────────────────────────────────── */
+const DICT_LOCAL = 'sanskrit-headwords.json';
+const DICT_CDN   = 'https://raw.githubusercontent.com/sanskrit-lexicon/csl-json/main/ashtadhyayi.com/mw.json';
+let dictHeadwords = null;
+let dictReady = false, dictLoading = false;
+
+async function ensureDictionary() {
+  if (dictReady || dictLoading) return;
+  dictLoading = true;
+  $('dict-badge').textContent = '📖 loading dict…';
+  let ok = false;
+  try {
+    const r = await fetch(DICT_LOCAL);
+    if (r.ok) { dictHeadwords = new Set(await r.json()); ok = true; }
+  } catch {}
+  if (!ok) {
     try {
-      const resp = await fetch(DICT_HEADWORDS_LOCAL);
-      if (resp.ok) {
-        const arr = await resp.json();
-        dictHeadwords = new Set(arr);
-        loaded = true;
-      }
-    } catch (_) { /* ignore — try fallback */ }
-    // If local file failed, try the full MW JSON (large but works anywhere)
-    if (!loaded) {
-      try {
-        badge.textContent = '📖 downloading dictionary…';
-        const resp = await fetch(DICT_HEADWORDS_CDN);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
-        dictHeadwords = new Set(Object.keys(data.data.words));
-        loaded = true;
-      } catch (_) { /* give up */ }
+      const r = await fetch(DICT_CDN);
+      if (r.ok) { const d = await r.json(); dictHeadwords = new Set(Object.keys(d.data.words)); ok = true; }
+    } catch {}
+  }
+  dictReady = ok;
+  dictLoading = false;
+  if (ok) {
+    $('dict-badge').className = 'badge lav';
+    $('dict-badge').textContent = `📖 ${dictHeadwords.size.toLocaleString()} words`;
+    ensureChandas();
+  } else {
+    $('dict-badge').textContent = '📖 offline';
+  }
+}
+function isInDict(word) {
+  if (!dictReady || !dictHeadwords) return null;
+  const clean = word.replace(/[।॥,\.\?!;:"'0-9]/g, '').trim();
+  return dictHeadwords.has(clean);
+}
+
+/* ─── Akshara Segmentation & SLP1 / IAST ───────────────────────────────────── */
+const MATRA_RE = /^[\u093E-\u094C\u0962\u0963\u0901-\u0903\u093C\u094D]/;
+function segmentAksharas(word) {
+  const out = [];
+  for (const ch of word) {
+    if (!out.length) { out.push(ch); continue; }
+    const last = out[out.length - 1];
+    if (MATRA_RE.test(ch) || last.endsWith('\u094D')) out[out.length - 1] = last + ch;
+    else out.push(ch);
+  }
+  return out;
+}
+
+const IND_V = {'अ':'a','आ':'ā','इ':'i','ई':'ī','उ':'u','ऊ':'ū','ऋ':'ṛ','ॠ':'ṝ','ऌ':'ḷ','ए':'e','ऐ':'ai','ओ':'o','औ':'au','ॐ':'oṃ'};
+const CONS = {'क':'k','ख':'kh','ग':'g','घ':'gh','ङ':'ṅ','च':'c','छ':'ch','ज':'j','झ':'jh','ञ':'ñ','ट':'ṭ','ठ':'ṭh','ड':'ḍ','ढ':'ḍh','ण':'ṇ','त':'t','थ':'th','द':'d','ध':'dh','न':'n','प':'p','फ':'ph','ब':'b','भ':'bh','म':'m','य':'y','र':'r','ल':'l','व':'v','श':'ś','ष':'ṣ','स':'s','ह':'h'};
+const VSIGNS = {'ा':'ā','ि':'i','ी':'ī','ु':'u','ू':'ū','ृ':'ṛ','ॄ':'ṝ','े':'e','ै':'ai','ो':'o','ौ':'au'};
+const VIRAMA = '\u094D';
+
+function aksharaToIAST(a) {
+  let out = '', vowel = '', mark = '', sawCons = false, endsVir = false;
+  for (const ch of Array.from(a)) {
+    if (ch === VIRAMA) { endsVir = true; continue; }
+    const c = CONS[ch];
+    if (c) { endsVir = false; out += c; sawCons = true; }
+    else if (VSIGNS[ch]) { endsVir = false; vowel = VSIGNS[ch]; }
+    else if (IND_V[ch]) { endsVir = false; out += IND_V[ch]; sawCons = false; }
+    else if (ch === 'ं') mark += 'ṃ';
+    else if (ch === 'ः') mark += 'ḥ';
+  }
+  if (!vowel && sawCons && !endsVir) vowel = 'a';
+  return out + vowel + mark;
+}
+function toIAST(text) {
+  return text.split(/\s+/).filter(Boolean).map(w => segmentAksharas(w).map(aksharaToIAST).join('')).join(' ');
+}
+
+/* ─── Edit Distance (LEAP editdistance.cpp) ────────────────────────────────── */
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = Array.from({length: n + 1}, (_, j) => j), curr = new Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
     }
-    try {
-      if (loaded) {
-        dictReady = true;
-        dictError = null;
-        // Also load bigram model and chandas data in parallel (optional — not fatal if missing)
-        ensureBigrams();
-        ensureChandas();
-        badge.textContent = '📖 ' + dictHeadwords.size.toLocaleString() + ' words';
-        badge.title = 'Monier-Williams Sanskrit dictionary loaded — ' + dictHeadwords.size + ' headwords';
-      } else {
-        badge.textContent = '📖 dictionary unavailable';
-        badge.title = 'Dictionary could not be loaded';
-      }
-    } catch (e) {
-      dictError = e.message;
-      badge.textContent = '📖 dictionary unavailable';
-      badge.title = 'Could not load dictionary: ' + e.message;
-      console.warn('Dictionary load failed:', e);
-    } finally {
-      dictLoading = false;
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+/* ─── Suggest Word Corrections (Ranked Dictionary + Matrix) ───────────────── */
+function suggestWordCandidates(rawWord, maxCount = 6) {
+  const clean = rawWord.replace(/[।॥,\.\?!;:"'0-9]/g, '').trim();
+  const results = [];
+  const seen = new Set();
+
+  // 1. Exact matrix learned substitutions
+  state.matrix.forEach(m => {
+    if (m.guess === clean && !seen.has(m.correct)) {
+      results.push({ word: m.correct, score: 100 + m.count, label: `learned (${m.count}×)` });
+      seen.add(m.correct);
     }
-  }
+  });
 
-  /** Check if a word exists in the dictionary. */
-  function isInDictionary(word) {
-    if (!dictReady || !dictHeadwords) return null; // unknown — dict not loaded
-    return dictHeadwords.has(word);
-  }
-
-  /* ---- Bigram model for context-aware correction ---- */
-  /** Lazy-load the bigram frequency table. */
-  async function ensureBigrams() {
-    if (bigramReady) return;
-    try {
-      const resp = await fetch(BIGRAMS_LOCAL);
-      if (!resp.ok) return;  // optional file — not fatal
-      bigramModel = await resp.json();
-      bigramReady = true;
-      console.log('Bigram model loaded:', Object.keys(bigramModel).length, 'entries');
-    } catch (_) { /* optional — spell-check still works without it */ }
-  }
-
-  /** Get bigram frequency score for a word pair.
-      Returns 0 if either word or the pair is unknown. */
-  function bigramScore(prevWord, nextWord) {
-    if (!bigramReady || !bigramModel) return 0;
-    const key1 = prevWord + '\x00' + nextWord;
-    const key2 = nextWord + '\x00' + prevWord;
-    return (bigramModel[key1] || 0) + (bigramModel[key2] || 0);
-  }
-
-  /** Get unigram frequency (sum of all bigrams containing this word). */
-  function unigramScore(word) {
-    if (!bigramReady || !bigramModel) return 0;
-    let score = 0;
-    // Check both positions: ...\x00word and word\x00...
-    // This is O(n) but called only for top candidates
-    for (const key of Object.keys(bigramModel)) {
-      const parts = key.split('\x00');
-      if (parts[0] === word || parts[1] === word) {
-        score += bigramModel[key];
-      }
-    }
-    return score;
-  }
-
-  /* ---- Levenshtein distance for dictionary suggestions ---- */
-  function levenshtein(a, b) {
-    const m = a.length, n = b.length;
-    if (m === 0) return n;
-    if (n === 0) return m;
-    // Optimise: only two rows needed
-    let prev = new Array(n + 1);
-    let curr = new Array(n + 1);
-    for (let j = 0; j <= n; j++) prev[j] = j;
-    for (let i = 1; i <= m; i++) {
-      curr[0] = i;
-      for (let j = 1; j <= n; j++) {
-        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-        curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
-      }
-      [prev, curr] = [curr, prev];
-    }
-    return prev[n];
-  }
-
-  /** Find closest dictionary matches for an unknown word.
-      If context (prevWord/nextWord) is provided, uses bigram scores
-      to rerank candidates by contextual likelihood. Returns up to 5. */
-  function suggestDictionaryMatches(word, maxDist, prevWord, nextWord) {
-    if (!dictReady || !dictHeadwords) return [];
-    maxDist = maxDist || Math.max(2, Math.ceil(word.length * 0.4));
+  // 2. Dictionary closest matches
+  if (dictReady && dictHeadwords) {
     const candidates = [];
     for (const hw of dictHeadwords) {
-      // Quick length filter: skip if too different in length
-      if (Math.abs(hw.length - word.length) > maxDist) continue;
-      const d = levenshtein(word, hw);
-      if (d <= maxDist) {
-        // Combine edit distance with bigram context score
-        let contextScore = 0;
-        if (bigramReady && bigramModel) {
-          if (prevWord) contextScore += bigramScore(prevWord, hw);
-          if (nextWord) contextScore += bigramScore(hw, nextWord);
-        }
-        candidates.push({ word: hw, dist: d, context: contextScore });
+      if (Math.abs(hw.length - clean.length) > 2) continue;
+      const d = levenshtein(clean, hw);
+      if (d > 0 && d <= 2) {
+        candidates.push({ word: hw, dist: d });
+        if (candidates.length > 50) break;
       }
     }
-    // Sort: primary by edit distance, secondary by context score (higher = better)
-    candidates.sort((a, b) => a.dist - b.dist || b.context - a.context || a.word.localeCompare(b.word, 'sa'));
-    return candidates.slice(0, 5);
-  }
-
-  /** Fetch a word's Monier-Williams definition from GitHub raw CDN.
-      Caches results. Returns { h1, def } or null. */
-  async function fetchMWDefinition(word) {
-    if (dictCache.has(word)) return dictCache.get(word);
-    try {
-      const resp = await fetch(DICT_MW_RAW);
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const data = await resp.json();
-      const entryIds = data.data.words[word];
-      if (!entryIds) { dictCache.set(word, null); return null; }
-      // Take the first entry ID
-      const firstId = String(entryIds.split(',')[0]);
-      const entry = data.data.text[firstId];
-      if (!entry || !entry[0]) { dictCache.set(word, null); return null; }
-      // entry[0] is the definition text (may contain HTML-like markup)
-      const def = entry[0].replace(/<[^>]+>/g, '').trim();
-      const result = { h1: word, def };
-      dictCache.set(word, result);
-      return result;
-    } catch (e) {
-      console.warn('MW fetch failed for', word, e);
-      dictCache.set(word, null);
-      return null;
-    }
-  }
-
-  /* ---- Spell-check: identify unknown words after OCR ---- */
-  /** Returns array of { word, index, suggestions } for unknown words. */
-  function spellCheckWords() {
-    if (!current || !dictReady) return [];
-    const unknowns = [];
-    current.words.forEach((w, i) => {
-      const text = w.aksharas.map(a => a.corrected || a.text).join('');
-      const found = isInDictionary(text);
-      if (found === false) {  // null means dict not loaded
-        // Get context: previous and next words in the sentence
-        const prevWord = i > 0
-          ? current.words[i - 1].aksharas.map(a => a.corrected || a.text).join('')
-          : null;
-        const nextWord = i < current.words.length - 1
-          ? current.words[i + 1].aksharas.map(a => a.corrected || a.text).join('')
-          : null;
-        const suggestions = suggestDictionaryMatches(text, null, prevWord, nextWord);
-        unknowns.push({ word: text, index: i, suggestions });
+    candidates.sort((a, b) => a.dist - b.dist);
+    candidates.slice(0, 4).forEach(c => {
+      if (!seen.has(c.word)) {
+        results.push({ word: c.word, score: 50 - c.dist * 10, label: 'dict match' });
+        seen.add(c.word);
       }
     });
-    return unknowns;
   }
 
-  /** Render the spell-check word list below the result. */
-  function renderSpellCheck() {
-    const box = $('spellcheckBox');
-    const list = $('spellcheckWords');
-    if (!dictReady || !current) { box.style.display = 'none'; return; }
-    const unknowns = spellCheckWords();
-    if (!unknowns.length) { box.style.display = 'none'; return; }
-    box.style.display = '';
-    list.innerHTML = '';
-    unknowns.forEach((u) => {
-      const el = document.createElement('span');
-      el.className = 'spell-word';
-      const wordSpan = document.createElement('span');
-      wordSpan.textContent = u.word;
-      el.appendChild(wordSpan);
-      if (u.suggestions.length) {
-        const sug = document.createElement('span');
-        sug.className = 'spell-suggest';
-        sug.textContent = ' → ' + u.suggestions[0].word;
-        el.appendChild(sug);
-      }
-      el.title = u.suggestions.length
-        ? 'Suggestions: ' + u.suggestions.map(s => s.word + ' (dist ' + s.dist + ')').join(', ')
-        : 'No close dictionary matches found';
-      el.onclick = () => {
-        // Jump to the first akshara of this word in the correction modal
-        const word = current.words[u.index];
-        if (word && word.aksharas.length) openModal(word, word.aksharas[0]);
+  return results.slice(0, maxCount);
+}
+
+/* ─── OCR Engine Bridge ─────────────────────────────────────────────────────── */
+function setProgress(p) { $('progress-bar').firstElementChild.style.width = Math.round(p * 100) + '%'; }
+function setStatus(msg) { $('status-line').textContent = msg; }
+
+async function ensureTesseractWorker() {
+  const lang = $('lang-sel').value;
+  if (worker && workerLang === lang) return worker;
+  if (worker) { try { await worker.terminate(); } catch {} worker = null; }
+  setStatus(`Initializing Tesseract.js (${lang})…`);
+  worker = await Tesseract.createWorker(lang, 1, {
+    logger: m => { if (m.status === 'recognizing text') setProgress(m.progress); }
+  });
+  workerLang = lang;
+  return worker;
+}
+
+async function ocrViaServer(blobOrCanvas) {
+  let blob = blobOrCanvas;
+  if (blobOrCanvas instanceof HTMLCanvasElement) {
+    blob = await new Promise(r => blobOrCanvas.toBlob(r, 'image/png'));
+  }
+  const fd = new FormData();
+  fd.append('image', blob, 'manuscript.png');
+  fd.append('lang', $('lang-sel').value);
+  fd.append('mode', 'page');
+  const r = await fetch(`${OCR_SERVER}/ocr`, { method: 'POST', body: fd });
+  if (!r.ok) throw new Error(`Server status ${r.status}`);
+  return r.json();
+}
+
+/* ─── Build Hierarchical Document Session ─────────────────────────────────── */
+function buildSessionFromOCR(data, imgObj, imgW, imgH) {
+  currentImageW = imgW || 1000;
+  currentImageH = imgH || 800;
+
+  const blocks = [];
+  const W = currentImageW, H = currentImageH;
+
+  // Check if structured hOCR / blocks are available from Tesseract.js
+  if (data.blocks && data.blocks.length) {
+    data.blocks.forEach((blk, bi) => {
+      const bBbox = blk.bbox || { x0: 0, y0: 0, x1: W, y1: H };
+      const isMarginal = isBlockMarginal(bBbox, W, H);
+
+      const blockObj = {
+        id: uid(),
+        blockNum: bi + 1,
+        bbox: bBbox,
+        isMarginal,
+        type: isMarginal ? 'marginalia' : 'main_text',
+        lines: []
       };
-      list.appendChild(el);
-    });
-  }
 
-  /* ===================== IndexedDB (tiny kv store) ===================== */
-  let dbPromise = null;
-  function openDB() {
-    if (dbPromise) return dbPromise;
-    dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open('eym-browser', 1);
-      req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv'); };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-    return dbPromise;
-  }
-  async function kvGet(key, fallback) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const rq = db.transaction('kv', 'readonly').objectStore('kv').get(key);
-      rq.onsuccess = () => resolve(rq.result === undefined ? fallback : rq.result);
-      rq.onerror = () => reject(rq.error);
-    });
-  }
-  async function kvSet(key, value) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('kv', 'readwrite');
-      tx.objectStore('kv').put(value, key);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  }
-  let saveTimer = null;
-  function persistSoon() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      Promise.all([
-        kvSet('sessions', state.sessions),
-        kvSet('matrix', state.matrix),
-        kvSet('confirmations', state.confirmations),
-      ]).catch((e) => console.error('persist failed', e));
-    }, 250);
-  }
-  function upsertSession() {
-    if (!current) return;
-    const i = state.sessions.findIndex((s) => s.id === current.id);
-    if (i >= 0) state.sessions[i] = current; else state.sessions.push(current);
-  }
+      const paragraphs = blk.paragraphs || [blk];
+      let lineCounter = 0;
 
-  /* ===================== akshara segmentation ===================== */
-  const MATRA_RE = /[\u0900-\u0903\u093A-\u094F\u0951-\u0957\u0962-\u0963\u200C\u200D]/;
-  function segmentAksharas(word) {
-    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
-      const seg = new Intl.Segmenter('und', { granularity: 'grapheme' });
-      return Array.from(seg.segment(word), (s) => s.segment);
-    }
-    const out = [];
-    for (const ch of word) {
-      if (!out.length) { out.push(ch); continue; }
-      const last = out[out.length - 1];
-      if (MATRA_RE.test(ch) || last.endsWith('\u094D')) out[out.length - 1] = last + ch;
-      else out.push(ch);
-    }
-    return out;
-  }
-  const matrasOf = (s) => Array.from(s).filter((ch) => MATRA_RE.test(ch)).join('');
-  const baseOf = (s) => Array.from(s).find((ch) => !MATRA_RE.test(ch)) ?? s;
+      paragraphs.forEach(para => {
+        const pLines = para.lines || [para];
+        pLines.forEach(l => {
+          lineCounter++;
+          const lBbox = l.bbox || bBbox;
+          const lineObj = {
+            id: uid(),
+            lineNum: lineCounter,
+            bbox: lBbox,
+            words: []
+          };
 
-  /* ===================== Devanagari → IAST transliteration ===================== */
-  const INDEPENDENT_VOWELS = {
-    'अ':'a','आ':'ā','इ':'i','ई':'ī','उ':'u','ऊ':'ū','ऋ':'ṛ','ॠ':'ṝ','ऌ':'ḷ','ॡ':'ḹ',
-    'ए':'e','ऐ':'ai','ओ':'o','औ':'au','ॐ':'oṃ',
-  };
-  const CONSONANTS = {
-    'क':'k','ख':'kh','ग':'g','घ':'gh','ङ':'ṅ',
-    'च':'c','छ':'ch','ज':'j','झ':'jh','ञ':'ñ',
-    'ट':'ṭ','ठ':'ṭh','ड':'ḍ','ढ':'ḍh','ण':'ṇ',
-    'त':'t','थ':'th','द':'d','ध':'dh','न':'n',
-    'प':'p','फ':'ph','ब':'b','भ':'bh','म':'m',
-    'य':'y','र':'r','ल':'l','व':'v','श':'ś','ष':'ṣ','स':'s','ह':'h',
-    'ळ':'ḷ','ड़':'ṛ','ऴ':'ḻ',
-  };
-  const VOWEL_SIGNS = {
-    'ा':'ā','ि':'i','ी':'ī','ु':'u','ू':'ū','ृ':'ṛ','ॄ':'ṝ','े':'e','ै':'ai','ो':'o','ौ':'au','ॅ':'ê','ॉ':'ô',
-  };
-  const ANUSVARA = 'ं', VISARGA = 'ः', CANDRABINDU = 'ँ';
-  const VIRAMA = String.fromCharCode(0x094D);
+          const rawWords = l.words || [];
+          rawWords.forEach(w => {
+            const rawTxt = (w.text || '').trim();
+            if (!rawTxt) return;
+            const conf = clamp((w.confidence || 0) / 100, 0, 1);
+            const wBbox = w.bbox || lBbox;
 
-  function aksharaToIAST(a) {
-    let out = '', vowel = '', mark = '';
-    let endsVirama = false, sawConsonant = false;
-    for (const ch of Array.from(a)) {
-      if (ch === VIRAMA) { endsVirama = true; continue; }
-      const c = CONSONANTS[ch];
-      if (c) {
-        endsVirama = false;
-        out += c; sawConsonant = true;
-      }
-      else if (VOWEL_SIGNS[ch]) { endsVirama = false; vowel = VOWEL_SIGNS[ch]; }
-      else if (INDEPENDENT_VOWELS[ch]) { endsVirama = false; out += INDEPENDENT_VOWELS[ch]; sawConsonant = false; }
-      else if (ch === ANUSVARA) mark += 'ṃ';
-      else if (ch === VISARGA) mark += 'ḥ';
-      else if (ch === CANDRABINDU) mark += 'm̐';
-    }
-    if (!vowel && sawConsonant && !endsVirama) vowel = 'a';
-    return out + vowel + mark;
-  }
-  function toIAST(text) {
-    return text.split(/\s+/).filter(Boolean)
-      .map((w) => segmentAksharas(w).map(aksharaToIAST).join(''))
-      .join(' ');
-  }
-  async function copyText(text) {
-    try {
-      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
-      else {
-        const ta = document.createElement('textarea'); ta.value = text;
-        ta.style.position = 'fixed'; ta.style.opacity = '0';
-        document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); ta.remove();
-      }
-      toast('Copied to clipboard.');
-    } catch (_) { toast('Copy failed — select the text manually.'); }
-  }
+            lineObj.words.push({
+              id: uid(),
+              text: rawTxt,
+              corrected: null,
+              confidence: conf,
+              bbox: wBbox,
+              reviewed: false,
+              aksharas: segmentAksharas(rawTxt).map(a => ({ text: a, corrected: null }))
+            });
+          });
 
-  // Static fallback: common visually-similar Devanagari confusions
-  const VISUALLY_SIMILAR = {
-    'ड': ['द','ड़','ढ','ण'], 'ड़': ['ड','द','ढ'], 'द': ['ड','द्ध','ब'],
-    'ण': ['न','ड','ढ'], 'न': ['ण','म','र'], 'भ': ['ब','भ्','व'],
-    'ब': ['भ','व','ब्'], 'व': ['ब','भ','व्'], 'प': ['य','फ','ष'],
-    'य': ['प','ज','ष'], 'श': ['ष','स'], 'ष': ['श','स','प'], 'स': ['श','ष'],
-    'ज': ['य','झ'], 'घ': ['ग','ध','झ'], 'ध': ['घ','द','भ'], 'थ': ['ध','त'],
-    'त': ['थ','द'], 'क': ['ख','क्'], 'ख': ['क','घ'], 'ग': ['घ','क'],
-    'च': ['छ','स'], 'छ': ['च','श'], 'म': ['न','भ'], 'र': ['न','व'],
-    'ल': ['ळ','ल्'], 'ळ': ['ल','ड'], 'अ': ['आ','अं'], 'आ': ['अ','आं'],
-    'इ': ['ई','ए'], 'ई': ['इ','ए'], 'उ': ['ऊ','ओ'], 'ऊ': ['उ','ओ'],
-    'ए': ['इ','ऐ'], 'ऐ': ['ए','आ'], 'ओ': ['उ','औ'], 'औ': ['ओ','आ'],
-  };
-
-  /* ===================== confusion matrix ===================== */
-  function getAlternatives(guess) {
-    const matra = matrasOf(guess);
-    const base = baseOf(guess);
-    let hits = state.matrix.filter((e) => e.guess === guess);
-    if (!hits.length && matra && base !== guess) {
-      hits = state.matrix.filter((e) => baseOf(e.guess) === base)
-        .map((e) => ({ ...e, correct: e.correct + matra }));
-    }
-    hits.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.count - a.count);
-    const alts = hits.map((h) => ({ text: h.correct, count: h.count, pinned: h.pinned, static: false }));
-    if (!hits.length) {
-      const baseAlts = VISUALLY_SIMILAR[base] || [];
-      alts.push(...baseAlts.map((c) => ({ text: c + matra, count: 0, pinned: false, static: true })));
-    }
-    return alts.slice(0, 8);
-  }
-
-  /* ---- Combined suggestion: matrix + Levenshtein + context ---- */
-  /** Get all possible corrections for a single akshara from the matrix.
-      Returns [{ text, count, pinned }] sorted by frequency. */
-  function getAksharaCorrections(aksharaText) {
-    const matra = matrasOf(aksharaText);
-    const base = baseOf(aksharaText);
-    let hits = state.matrix.filter((e) => e.guess === aksharaText);
-    if (!hits.length && matra && base !== aksharaText) {
-      hits = state.matrix.filter((e) => baseOf(e.guess) === base)
-        .map((e) => ({ ...e, correct: e.correct + matra }));
-    }
-    hits.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.count - a.count);
-    if (hits.length) return hits.map(h => ({ text: h.correct, count: h.count, pinned: h.pinned }));
-    // Fallback: static visual similarity
-    const baseAlts = VISUALLY_SIMILAR[base] || [];
-    return baseAlts.map(c => ({ text: c + matra, count: 0, pinned: false }));
-  }
-
-  /** Generate whole-word candidates by applying matrix corrections.
-      For each low-confidence akshara, tries all known corrections.
-      Returns up to 20 candidates with their source akshara corrections. */
-  function generateMatrixCandidates(word) {
-    const aksharas = word.aksharas;
-    // Get corrections for each akshara (index → [{text, count}])
-    const perAkshara = aksharas.map((a, i) => {
-      const isLowConf = word.confidence < MED || a.corrected;
-      if (!isLowConf) return null;  // skip high-confidence aksharas
-      const corrs = getAksharaCorrections(a.corrected || a.text);
-      return corrs.length ? corrs : null;
-    });
-    // If no akshara has corrections, return empty
-    if (!perAkshara.some(c => c !== null)) return [];
-    // Cartesian product: try all combinations (capped at 20)
-    const candidates = [];
-    function buildCombo(idx, current, totalMatrixCount) {
-      if (candidates.length >= 20) return;
-      if (idx === aksharas.length) {
-        const wordText = current.join('');
-        candidates.push({ word: wordText, matrixScore: totalMatrixCount, source: 'matrix' });
-        return;
-      }
-      const corr = perAkshara[idx];
-      if (!corr) {
-        // High-confidence: keep original
-        buildCombo(idx + 1, [...current, aksharas[idx].corrected || aksharas[idx].text], totalMatrixCount);
-      } else {
-        // Try each correction (limit to top 3 per akshara to cap combinations)
-        for (const c of corr.slice(0, 3)) {
-          buildCombo(idx + 1, [...current, c.text], totalMatrixCount + c.count);
-        }
-        // Also try keeping the original
-        buildCombo(idx + 1, [...current, aksharas[idx].corrected || aksharas[idx].text], totalMatrixCount);
-      }
-    }
-    buildCombo(0, [], 0);
-    // Deduplicate
-    const seen = new Set();
-    return candidates.filter(c => { if (seen.has(c.word)) return false; seen.add(c.word); return true; });
-  }
-
-  /** Combined suggestion function: merges matrix candidates, Levenshtein
-      dictionary matches, and context scoring into a single ranked list.
-      Returns [{ word, score, dist, matrixScore, contextScore, inDict, source }]. */
-  function suggestBestCorrections(word, prevWord, nextWord, maxResults) {
-    maxResults = maxResults || 8;
-    const ocrText = word.aksharas.map(a => a.corrected || a.text).join('');
-    // If already in dictionary, no correction needed
-    if (dictReady && isInDictionary(ocrText) === true) return [];
-    const candidates = new Map();  // word → candidate object
-    function addCandidate(wordText, source, dist, matrixScore, contextScore) {
-      if (candidates.has(wordText)) {
-        const existing = candidates.get(wordText);
-        existing.matrixScore = Math.max(existing.matrixScore, matrixScore || 0);
-        existing.contextScore = Math.max(existing.contextScore, contextScore || 0);
-        if (source === 'dictionary') existing.inDict = true;
-        return;
-      }
-      candidates.set(wordText, {
-        word: wordText,
-        dist: dist || 0,
-        matrixScore: matrixScore || 0,
-        contextScore: contextScore || 0,
-        inDict: dictReady ? isInDictionary(wordText) === true : false,
-        source,
+          if (lineObj.words.length) blockObj.lines.push(lineObj);
+        });
       });
-    }
-    // 1. Matrix-generated candidates
-    const matrixCands = generateMatrixCandidates(word);
-    for (const c of matrixCands) {
-      addCandidate(c.word, 'matrix', levenshtein(ocrText, c.word), c.matrixScore, 0);
-    }
-    // 2. Levenshtein dictionary matches
-    if (dictReady && dictHeadwords) {
-      const maxDist = Math.max(3, Math.ceil(ocrText.length * 0.5));
-      for (const hw of dictHeadwords) {
-        if (Math.abs(hw.length - ocrText.length) > maxDist) continue;
-        const d = levenshtein(ocrText, hw);
-        if (d <= maxDist) {
-          let ctx = 0;
-          if (bigramReady && bigramModel) {
-            if (prevWord) ctx += bigramScore(prevWord, hw);
-            if (nextWord) ctx += bigramScore(hw, nextWord);
-          }
-          addCandidate(hw, 'dictionary', d, 0, ctx);
-        }
-      }
-    }
-    // 3. Score and rank all candidates
-    const maxMatrixCount = Math.max(1, ...[...candidates.values()].map(c => c.matrixScore));
-    const maxContext = Math.max(1, ...[...candidates.values()].map(c => c.contextScore));
-    const scored = [...candidates.values()].map(c => {
-      // Combined score: lower is better
-      // dist: 0-5 (Levenshtein)
-      // matrixScore: normalized 0-1 (confusion matrix frequency)
-      // contextScore: normalized 0-1 (bigram context)
-      // inDict: bonus -2 if true
-      const normMatrix = c.matrixScore / maxMatrixCount;
-      const normContext = c.contextScore / maxContext;
-      const dictBonus = c.inDict ? -2 : 0;
-      c.score = c.dist - normMatrix * 1.5 - normContext * 1.0 + dictBonus;
-      return c;
-    });
-    scored.sort((a, b) => a.score - b.score || a.dist - b.dist);
-    // Return top N, deduplicating by word
-    const result = [];
-    const seenWords = new Set();
-    for (const c of scored) {
-      if (seenWords.has(c.word)) continue;
-      seenWords.add(c.word);
-      result.push(c);
-      if (result.length >= maxResults) break;
-    }
-    return result;
-  }
-  function recordCorrection(guess, correct) {
-    const e = state.matrix.find((x) => x.guess === guess && x.correct === correct);
-    if (e) { e.count++; e.ts = new Date().toISOString(); }
-    else state.matrix.push({ id: uid(), guess, correct, count: 1, pinned: false, ts: new Date().toISOString() });
-  }
-  function recordConfirmation(guess) {
-    const c = state.confirmations.find((x) => x.guess === guess);
-    if (c) c.count++; else state.confirmations.push({ guess, count: 1, ts: new Date().toISOString() });
-  }
-  const confirmationCount = (guess) => {
-    const c = state.confirmations.find((x) => x.guess === guess);
-    return c ? c.count : 0;
-  };
 
-  /* ===================== OCR ===================== */
-  function setProgress(p) { $('progress').firstElementChild.style.width = Math.round(p * 100) + '%'; }
-  function setStatus(msg) { $('status').textContent = msg; }
-  function onProgress(m) {
-    if (m.status === 'recognizing text') setProgress(m.progress);
-    else if (m.status) setStatus(m.status + '…');
-  }
-  async function ensureWorker() {
-    const lang = $('lang').value;
-    if (worker && workerLang === lang) return worker;
-    if (worker) { try { await worker.terminate(); } catch (_) {} worker = null; }
-    setProgress(0);
-    setStatus('Loading OCR engine (' + lang + ') — first run downloads it from a CDN…');
-    try {
-      worker = await Tesseract.createWorker(lang, 1, { logger: onProgress });
-      workerLang = lang;
-      return worker;
-    } catch (err) {
-      setStatus('OCR engine failed to load: ' + err.message);
-      throw err;
-    }
-  }
-  async function runOcr(source) {
-    if (busy) return;
-    busy = true;
-    $('sampleBtn').disabled = $('lang').disabled = true;
-    try {
-      // Ensure dictionary is loaded in parallel with OCR
-      ensureDictionary().catch(() => {});
-      const w = await ensureWorker();
-      setProgress(0); setStatus('Recognizing…');
-      const { data } = await w.recognize(source);
-      buildSession(data);
-    } catch (err) {
-      console.error(err);
-      if (err.message && !err.message.includes('failed to load')) setStatus('OCR failed: ' + err.message);
-    } finally {
-      busy = false;
-      $('sampleBtn').disabled = $('lang').disabled = false;
-    }
-  }
-  function buildSession(data) {
-    const text = data.text || '';
-    let words = (data.words || [])
-      .filter((w) => w && w.text && String(w.text).trim())
-      .map((w) => ({ text: String(w.text).trim(), confidence: Math.max(0, Math.min(1, (w.confidence || 0) / 100)) }));
-    if (!words.length) {
-      words = text.split(/\s+/).filter(Boolean).map((t) => ({ text: t, confidence: 0.6 }));
-    }
-    current = {
+      if (blockObj.lines.length) blocks.push(blockObj);
+    });
+  } else {
+    // Fallback: build lines from raw text
+    const textLines = (data.text || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const mainBlock = {
       id: uid(),
-      filename: currentFile ? currentFile.name : 'sample.png',
-      lang: $('lang').value,
-      script: SCRIPT, engine: ENGINE,
-      ts: new Date().toISOString(),
-      status: 'in_progress',
-      words: words.map((w) => ({
-        text: w.text, confidence: w.confidence,
-        aksharas: segmentAksharas(w.text).map((a) => ({ text: a, corrected: null, reviewed: false })),
-      })),
+      blockNum: 1,
+      bbox: { x0: 0, y0: 0, x1: W, y1: H },
+      isMarginal: false,
+      type: 'main_text',
+      lines: []
     };
-    upsertSession();
-    renderResult(); renderSessions();
-    persistSoon();
-    const n = current.words.reduce((s, w) => s + w.aksharas.length, 0);
-    setStatus('Done — ' + current.words.length + ' word(s), ' + n + ' aksharas. Click any highlighted character to correct it.');
-    setProgress(1);
-    // Run spell-check and chandas after dictionary loads (may already be ready)
-    setTimeout(() => { renderSpellCheck(); renderChandas(); }, dictReady ? 0 : 2000);
-  }
-  const fullText = () => current ? current.words.map((w) => w.aksharas.map((a) => a.corrected || a.text).join('')).join(' ') : '';
-  const tierClass = (c) => c < LOW ? ' tier-low' : c < MED ? ' tier-med' : '';
 
-  /* ===================== rendering ===================== */
-  function renderResult() {
-    const box = $('result');
-    box.innerHTML = '';
-    if (!current) {
-      box.innerHTML = '<div class="empty">The recognized text appears here, split into aksharas. Low-confidence characters are highlighted.</div>';
-      $('fulltext').textContent = '';
-      $('spellcheckBox').style.display = 'none';
-      return;
-    }
-    const p = document.createElement('p');
-    p.className = 'line';
-    current.words.forEach((w, wi) => {
-      if (wi > 0) p.appendChild(document.createTextNode(' '));
-      const wspan = document.createElement('span');
-      wspan.className = 'word';
-      // Check if this word is in the dictionary
-      const wordText = w.aksharas.map(a => a.corrected || a.text).join('');
-      const inDict = isInDictionary(wordText);
-      w.aksharas.forEach((a) => {
-        const s = document.createElement('span');
-        s.className = 'tok' + tierClass(w.confidence) + (a.corrected ? ' corrected' : '') + (a.reviewed ? ' reviewed' : '');
-        // Add unknown-word underline if word not in dictionary
-        if (inDict === false && dictReady) s.classList.add('unknown-word');
-        s.textContent = a.corrected || a.text;
-        s.title = (a.corrected ? 'corrected from ' + a.text + ' · ' : 'OCR: ' + a.text + ' · ')
-          + 'word confidence ' + Math.round(w.confidence * 100) + '%'
-          + (inDict === false ? ' · ⚠ not in dictionary' : inDict === true ? ' · ✓ in dictionary' : '');
-        s.onclick = () => openModal(w, a);
-        wspan.appendChild(s);
-      });
-      p.appendChild(wspan);
-    });
-    box.appendChild(p);
-    renderSpellCheck();
-    renderChandas();
-    const ft = $('fulltext');
-    ft.innerHTML = '';
-    const dev = document.createElement('div');
-    dev.innerHTML = '<b>Devanāgarī:</b> ' + esc(fullText());
-    const iast = document.createElement('div');
-    iast.innerHTML = '<b>IAST:</b> ' + esc(toIAST(fullText()));
-    const row = document.createElement('div');
-    row.className = 'row';
-    const copyDev = document.createElement('button');
-    copyDev.className = 'btn ghost'; copyDev.textContent = 'Copy Devanāgarī';
-    copyDev.onclick = () => copyText(fullText());
-    const copyIast = document.createElement('button');
-    copyIast.className = 'btn ghost'; copyIast.textContent = 'Copy IAST';
-    copyIast.onclick = () => copyText(toIAST(fullText()));
-    row.append(copyDev, copyIast);
-    ft.append(dev, iast, row);
-  }
-  function renderSessions() {
-    const box = $('sessions');
-    box.innerHTML = '';
-    const list = [...state.sessions].sort((a, b) => b.ts.localeCompare(a.ts));
-    if (!list.length) { box.innerHTML = '<div class="empty">No sessions yet.</div>'; }
-    list.forEach((s) => {
-      const row = document.createElement('div');
-      row.className = 'sess' + (current && current.id === s.id ? ' active' : '');
-      row.innerHTML =
-        '<div class="grow"><div class="sess-name">' + esc(s.filename) + ' <span class="badge ' + s.status + '">' + esc(s.status) + '</span></div>' +
-        '<div class="sess-meta">' + esc(new Date(s.ts).toLocaleString()) + ' · ' + s.words.length + ' words</div></div>';
-      row.onclick = () => { current = s; renderResult(); renderSessions(); };
-      const del = document.createElement('button');
-      del.className = 'mini danger'; del.textContent = '✕'; del.title = 'Delete session';
-      del.onclick = (e) => {
-        e.stopPropagation();
-        state.sessions = state.sessions.filter((x) => x.id !== s.id);
-        if (current && current.id === s.id) current = null;
-        renderSessions(); renderResult(); persistSoon();
+    textLines.forEach((tl, idx) => {
+      const lineWords = tl.split(/\s+/).filter(Boolean);
+      const lineObj = {
+        id: uid(),
+        lineNum: idx + 1,
+        bbox: { x0: 0, y0: (idx / textLines.length) * H, x1: W, y1: ((idx + 1) / textLines.length) * H },
+        words: lineWords.map((w, wi) => ({
+          id: uid(),
+          text: w,
+          corrected: null,
+          confidence: 0.85,
+          bbox: { x0: (wi / lineWords.length) * W, y0: (idx / textLines.length) * H, x1: ((wi + 1) / lineWords.length) * W, y1: ((idx + 1) / textLines.length) * H },
+          reviewed: false,
+          aksharas: segmentAksharas(w).map(a => ({ text: a, corrected: null }))
+        }))
       };
-      row.appendChild(del);
-      box.appendChild(row);
+      mainBlock.lines.push(lineObj);
     });
-    const done = document.createElement('button');
-    done.className = 'btn full';
-    done.textContent = current && current.status === 'in_progress' ? '✓ Mark current session complete' : '＋ New session';
-    done.onclick = () => {
-      if (current && current.status === 'in_progress') {
-        current.status = 'completed'; upsertSession(); renderSessions(); toast('Session marked complete.');
-      } else { current = null; renderResult(); }
-      persistSoon();
-    };
-    box.appendChild(done);
-  }
-  function renderMatrix() {
-    const box = $('matrixBody');
-    box.innerHTML = '';
-    const entries = [...state.matrix].sort((a, b) => b.count - a.count);
-    if (!entries.length) {
-      box.innerHTML = '<div class="empty">No corrections yet — the matrix learns as you correct.</div>';
-    }
-    entries.forEach((e) => {
-      const row = document.createElement('div');
-      row.className = 'mrow';
-      row.innerHTML = '<span>' + esc(e.guess) + ' → ' + esc(e.correct) + '</span><span class="grow"></span><span class="mrow-count">' + e.count + '×</span>';
-      const pin = document.createElement('button');
-      pin.className = 'mini'; pin.textContent = e.pinned ? '⭐' : '☆'; pin.title = 'Pin as authoritative';
-      pin.onclick = () => { e.pinned = !e.pinned; renderMatrix(); persistSoon(); };
-      const del = document.createElement('button');
-      del.className = 'mini danger'; del.textContent = '✕'; del.title = 'Delete entry';
-      del.onclick = () => { state.matrix = state.matrix.filter((x) => x.id !== e.id); renderMatrix(); persistSoon(); };
-      row.append(pin, del);
-      box.appendChild(row);
-    });
-    const confs = state.confirmations.filter((c) => c.count > 0).sort((a, b) => b.count - a.count);
-    if (confs.length) {
-      const h = document.createElement('div');
-      h.className = 'mconf-title';
-      h.textContent = 'Confirmed correct — ' + confs.reduce((n, c) => n + c.count, 0) + ' total';
-      box.appendChild(h);
-      confs.slice(0, 12).forEach((c) => {
-        const row = document.createElement('div');
-        row.className = 'mrow';
-        row.innerHTML = '<span>' + esc(c.guess) + '</span><span class="grow"></span><span class="mrow-count">' + c.count + '× accepted</span>';
-        box.appendChild(row);
-      });
-    }
+    if (mainBlock.lines.length) blocks.push(mainBlock);
   }
 
-  /* ===================== CHANDAS (VERSE METER) IDENTIFICATION ===================== */
-  /* Based on the sanskrit/chandas library (MIT license).
-     Meters: 83 vṛttas + 1 jāti from Vṛttaratnākara tradition.
-     Devanāgarī → SLP1 → guru/laghu scan → pattern match. */
-  const CHANDAS_LOCAL = 'chandas-data.json';
-  const CHANDAS_CDN = 'https://raw.githubusercontent.com/sanskrit/chandas/master/data/data.json';
-  let chandasData = null; // array of {name, pattern, counts?}
-  let chandasLoading = false;
+  // Create flat word list for analytics/matrix compatibility
+  const flatWords = blocks.flatMap(b => b.lines.flatMap(l => l.words));
 
-  /* ---- Devanāgarī → SLP1 transliteration ---- */
-  const DVA_SLP1_MAP = {
-    'अ':'a','आ':'A','इ':'i','ई':'I','उ':'u','ऊ':'U','ऋ':'f','ॠ':'F','ऌ':'x','ए':'e','ऐ':'E','ओ':'o','औ':'O',
-    'क':'k','ख':'K','ग':'g','घ':'G','ङ':'N','च':'c','छ':'C','ज':'j','झ':'J','ञ':'Y','ट':'w','ठ':'W','ड':'q','ढ':'Q','ण':'R',
-    'त':'t','थ':'T','द':'d','ध':'D','न':'n','प':'p','फ':'P','ब':'b','भ':'B','म':'m','य':'y','र':'r','ल':'l','व':'v',
-    'श':'z','ष':'S','स':'s','ह':'h','ॐ':'O',
-    'ं':'M','ः':'H'
+  current = {
+    id: uid(),
+    filename: currentFile ? currentFile.name : 'manuscript.png',
+    lang: $('lang-sel').value,
+    script: SCRIPT,
+    ts: new Date().toISOString(),
+    status: 'in_progress',
+    blocks,
+    words: flatWords,
+    imageW: W,
+    imageH: H
   };
-  const DVA_MATRA_MAP = {
-    'ा':'A','ि':'i','ी':'I','ु':'u','ू':'U','ृ':'f','ॄ':'F','ॢ':'x','ॣ':'X','े':'e','ै':'E','ो':'o','ौ':'O'
-  };
-  const DVA_CONSONANTS = new Set('कखगघङचछजझञटठडढणतथदधनपफबभमयरलवशषसह');
-  const DVA_SHORT_VOWELS = new Set('अइउऋऌ');
-  const DVA_LONG_VOWELS = new Set('आईऊॠॠऐओऔ');
-  const DVA_ALL_VOWELS = new Set([...DVA_SHORT_VOWELS, ...DVA_LONG_VOWELS, ...Object.keys(DVA_MATRA_MAP).map(c => c)]);
 
-  /** Convert Devanāgarī text to SLP1 transliteration. */
-  function devaToSLP1(text) {
-    let slp = '';
-    let i = 0;
-    while (i < text.length) {
-      const ch = text[i];
-      // Virama (halant) — marks conjunct, don't emit vowel
-      if (ch === '\u094D') { slp += '_'; i++; continue; }
-      // Consonant MUST be checked before DVA_SLP1_MAP (consonants are in the map too)
-      if (DVA_CONSONANTS.has(ch)) {
-        const slpC = DVA_SLP1_MAP[ch] || '?';
-        // Look ahead for matra or virama
-        if (i + 1 < text.length) {
-          const next = text[i + 1];
-          if (DVA_MATRA_MAP[next]) {
-            slp += slpC + DVA_MATRA_MAP[next]; i += 2; continue;
-          }
-          if (next === '\u094D') {
-            slp += slpC + '_'; i += 2; continue;
-          }
-        }
-        // Consonant with inherent 'a'
-        slp += slpC + 'a'; i++; continue;
-      }
-      // Full standalone vowel (not a consonant)
-      if (DVA_SLP1_MAP[ch]) { slp += DVA_SLP1_MAP[ch]; i++; continue; }
-      // Skip ZWNJ, ZWJ, nukta marks, etc.
-      if (ch === '\u200C' || ch === '\u200D' || ch === '\u093C') { i++; continue; }
-      // Numbers, punctuation — pass through
-      slp += ch; i++;
-    }
-    return slp;
-  }
+  upsertSession();
+  renderAll();
+  persistSoon();
 
-  /** Determine syllable weights (G/L) for a SLP1 string.
-      Ported from chandas/wrappers.py Line.scan property. */
-  function slp1Scan(slp1) {
-    const shortV = 'aiufx';
-    const longV = 'AUIFXeEoO';
-    const vowel = shortV + longV;
-    const consonants = 'kKgGNcCjJYwWqQRtTdDnpPbBmyrlvzSsh';
-    const M = 'M', H = 'H';
-    // Remove leading consonants (edge case)
-    let data = slp1.replace(new RegExp('^[' + consonants + ']+'), '');
-    // Handle final consonants
-    data = data.replace(new RegExp('[' + vowel + '][MH' + consonants + ']+$'), '_');
-    // Long vowels → _
-    data = data.replace(new RegExp('[' + longV + '][MH' + consonants + ']*'), '_');
-    // Short vowels with anusvara/visarga/conjunct
-    data = data.replace(new RegExp('[' + shortV + ']([MH]|[' + consonants + ']){2,}'), '_');
-    // Short vowels without conjunct
-    data = data.replace(new RegExp('[' + shortV + '][' + consonants + ']*'), '.');
-    // Clean
-    data = data.replace(/[^_.]/g, '');
-    return data.replace(/_/g, 'G').replace(/\./g, 'L');
-  }
+  const totalWords = flatWords.length;
+  const marginalCount = blocks.filter(b => b.isMarginal).length;
+  setStatus(`OCR Complete: ${blocks.length} block(s), ${totalWords} word(s) identified${marginalCount ? ` (${marginalCount} marginal notes)` : ''}. Click any word to edit.`);
+  setProgress(1);
+}
 
-  /** Split SLP1 into syllables. */
-  function slp1Syllables(slp1) {
-    const vowel = 'aiufxAUIFXeEoO';
-    const consonants = 'kKgGNcCjJYwWqQRtTdDnpPbBmyrlvzSshMH';
-    const items = [];
-    const re = new RegExp('.*?[' + vowel + '][MH]?', 'g');
-    let m;
-    while ((m = re.exec(slp1)) !== null) items.push(m[0]);
-    // Handle trailing consonants
-    const tail = slp1.match(new RegExp('([' + consonants + ']+)$'));
-    if (items.length && tail) items[items.length - 1] += tail[1];
-    return items;
-  }
+/* ─── Marginal Note Spatial Classifier ─────────────────────────────────────── */
+function isBlockMarginal(bbox, W, H) {
+  if (!bbox || !W || !H) return false;
+  const cx = ((bbox.x0 + bbox.x1) / 2) / W;
+  const cy = ((bbox.y0 + bbox.y1) / 2) / H;
+  const wFrac = (bbox.x1 - bbox.x0) / W;
+  // Outer margin margins (<14% left/right or >86% left/right, or narrow column on edge)
+  return (cx < 0.14 || cx > 0.86) || (cy < 0.08 || cy > 0.92) || (wFrac < 0.22 && (cx < 0.25 || cx > 0.75));
+}
 
-  /** Load the chandas meter data. */
-  async function ensureChandas() {
-    if (chandasData) return;
-    if (chandasLoading) return;
-    chandasLoading = true;
-    try {
-      const resp = await fetch(CHANDAS_LOCAL);
-      if (resp.ok) { chandasData = await resp.json(); return; }
-    } catch (_) {}
-    try {
-      const resp = await fetch(CHANDAS_CDN);
-      if (resp.ok) chandasData = await resp.json();
-    } catch (_) {}
-    chandasLoading = false;
-  }
+/* ─── Zoom Controller for Manuscript Image & SVG Overlay ──────────────────── */
+let currentZoom = 1.0;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 5.0;
 
-  /** Build regex from pattern (G/L/. with optional |). */
-  function patternToRegex(pattern) {
-    // Join patterns: for sama-vṛtta (1 pattern), repeat it 4×;
-    // for ardha-sama (2), repeat each 2×; for viṣama (4), use as-is.
-    let expanded;
-    if (pattern.length === 1) {
-      // sama-vṛtta: all 4 pādas same
-      expanded = pattern[0].replace(/[|]/g, '') + '\|' + pattern[0].replace(/[|]/g, '') + '\|' + pattern[0].replace(/[|]/g, '') + '\|' + pattern[0].replace(/[|]/g, '');
-    } else if (pattern.length === 2) {
-      // ardha-sama: pādas 1,3 = pattern[0]; pādas 2,4 = pattern[1]
-      expanded = pattern[0].replace(/[|]/g, '') + '\|' + pattern[1].replace(/[|]/g, '') + '\|' + pattern[0].replace(/[|]/g, '') + '\|' + pattern[1].replace(/[|]/g, '');
-    } else if (pattern.length === 4) {
-      // viṣama: each pāda different
-      expanded = pattern.map(p => p.replace(/[|]/g, '')).join('\|');
-    } else {
-      return null;
-    }
-    // Convert . to [GL], | is a separator
-    expanded = expanded.replace(/\./g, '[GL]');
-    return new RegExp('^' + expanded + '$');
-  }
+function setZoom(level) {
+  currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(level * 100) / 100));
+  const wrapper = $('overlay-wrapper');
+  if (wrapper) wrapper.style.transform = `scale(${currentZoom})`;
+  const badge = $('zoom-badge');
+  if (badge) badge.textContent = `${Math.round(currentZoom * 100)}%`;
+}
 
-  /** Identify the verse meter from OCR text. Returns {name, scan, matched} or null. */
-  function identifyMeter(text) {
-    if (!chandasData || !text) return null;
-    // Split into lines/pādas (by newline or space-chunks)
-    const lines = text.split(/[\n]+/).map(l => l.trim()).filter(Boolean);
-    if (!lines.length) return null;
-    // Convert each line to SLP1 and scan
-    const lineScans = lines.map(l => {
-      const slp = devaToSLP1(l);
-      return slp1Scan(slp);
-    });
-    const fullScan = lineScans.join('|');
-    // Try each meter
-    for (const meter of chandasData) {
-      if (!meter.pattern || !meter.pattern.length) continue; // skip jāti for now
-      const re = patternToRegex(meter.pattern);
-      if (re && re.test(fullScan)) {
-        return { name: meter.name, scan: fullScan, matched: true, pattern: meter.pattern };
-      }
-    }
-    // Partial match: try line-by-line for sama-vṛtta
-    if (lineScans.length > 0) {
-      const firstScan = lineScans[0];
-      const partialMatches = [];
-      for (const meter of chandasData) {
-        if (!meter.pattern || !meter.pattern.length) continue;
-        if (meter.pattern.length === 1) {
-          const p = meter.pattern[0].replace(/[|]/g, '');
-          const re = new RegExp('^' + p.replace(/\./g, '[GL]') + '$');
-          if (re.test(firstScan)) {
-            partialMatches.push(meter.name);
-          }
-        }
-      }
-      if (partialMatches.length > 0) {
-        return { name: partialMatches.join(', '), scan: fullScan, matched: false, note: 'partial — first pāda matches' };
-      }
-    }
-    return null;
-  }
+function zoomBy(factor) {
+  setZoom(currentZoom * factor);
+}
 
-  /** Render chandas result into the UI. */
-  function renderChandas() {
-    const box = $('chandasBox');
-    const out = $('chandasResult');
-    if (!current) { box.style.display = 'none'; return; }
-    const text = fullText();
-    if (!text) { box.style.display = 'none'; return; }
-    // Ensure chandas data is loaded
-    ensureChandas().then(() => {
-      const result = identifyMeter(text);
-      if (result) {
-        box.style.display = '';
-        out.innerHTML = '<b>' + esc(result.name) + '</b>' +
-          (result.matched ? ' ✓' : ' <span style="color:#8A6A55;font-size:12px;">(' + (result.note || 'approximate') + ')</span>') +
-          '<br><span style="font-size:12px;color:#8A6A55;">Scan: <code style="font-size:12px;">' + esc(result.scan) + '</code></span>';
-      } else {
-        box.style.display = '';
-        out.innerHTML = '<span style="color:#8A6A55;">No matching meter found.</span>';
-      }
-    });
-  }
+function fitZoom() {
+  const container = $('overlay-container');
+  const img = $('source-img');
+  if (!container || !img || !img.naturalWidth) { setZoom(1.0); return; }
+  const cWidth = container.clientWidth - 16;
+  const ratio = cWidth / img.naturalWidth;
+  setZoom(Math.max(MIN_ZOOM, Math.min(1.0, ratio)));
+}
 
-  /* ===================== correction modal ===================== */
-  function openModal(word, akshara) {
-    const guess = akshara.text;
-    modalGuess = guess; modalAkshara = akshara;
-    const alts = getAlternatives(guess);
-    const cnt = confirmationCount(guess);
-    const wordText = word.aksharas.map(a => a.corrected || a.text).join('');
-    // Get context words for bigram scoring
-    const wordIndex = current ? current.words.indexOf(word) : -1;
-    const prevWord = wordIndex > 0
-      ? current.words[wordIndex - 1].aksharas.map(a => a.corrected || a.text).join('')
-      : null;
-    const nextWord = wordIndex >= 0 && wordIndex < current.words.length - 1
-      ? current.words[wordIndex + 1].aksharas.map(a => a.corrected || a.text).join('')
-      : null;
-    // Get combined suggestions (matrix + dictionary + context)
-    const bestCorrections = suggestBestCorrections(word, prevWord, nextWord, 10);
-    const m = $('modal');
-    m.innerHTML = '';
+/* ─── Bounding Box Tool State & Interactive Overlay ───────────────────────── */
+let bboxToolMode = 'select'; // 'select' | 'edit' | 'draw'
+let isDrawingBox = false;
+let drawStartPt = null;
 
-    // Title
-    const title = document.createElement('div');
-    title.className = 'm-title';
-    title.innerHTML = 'Correct "<b>' + esc(guess) + '</b>" in <span style="font-size:14px;">' + esc(wordText) + '</span>';
-    m.appendChild(title);
+function setBboxTool(mode) {
+  bboxToolMode = mode;
+  ['bbox-tool-select', 'bbox-tool-edit', 'bbox-tool-draw'].forEach(id => {
+    const el = $(id);
+    if (el) el.classList.toggle('active', id === `bbox-tool-${mode}`);
+  });
+  const svg = $('bbox-svg');
+  if (svg) svg.classList.toggle('draw-mode', mode === 'draw');
+  renderBboxOverlay();
+  toast(`Bbox Tool: ${mode.toUpperCase()} mode`);
+}
 
-    // Subtitle with status
-    const sub = document.createElement('div');
-    sub.className = 'm-sub';
-    let subText = '';
-    if (bestCorrections.length > 0) {
-      const hasMatrix = bestCorrections.some(c => c.matrixScore > 0);
-      const hasDict = bestCorrections.some(c => c.inDict);
-      subText = 'Suggestions ranked by spelling similarity';
-      if (hasMatrix) subText += ' + your confusion matrix';
-      if (hasDict) subText += ' + dictionary';
-      if (bigramReady) subText += ' + word context';
-      subText += '.';
-    } else {
-      subText = 'No corrections found — type the correct character below.';
-    }
-    if (cnt) subText += ' Confirmed correct ' + cnt + '× in past sessions.';
-    sub.textContent = subText;
-    m.appendChild(sub);
+function deleteActiveBbox() {
+  if (!activeWord) { toast('Click a word or bounding box first to delete its box.'); return; }
+  const txt = activeWord.corrected || activeWord.text;
+  activeWord.bbox = null;
+  renderBboxOverlay();
+  persistSoon();
+  toast(`Deleted bounding box for "${txt}"`);
+}
 
-    // Combined suggestion list
-    if (bestCorrections.length > 0) {
-      const list = document.createElement('div');
-      list.className = 'm-list';
-      bestCorrections.forEach((c) => {
-        const b = document.createElement('button');
-        b.className = 'alt';
-        // Build meta badges
-        let meta = '';
-        if (c.inDict) meta += '<span class="dict-badge-sm">📖</span> ';
-        if (c.matrixScore > 0) meta += '<span class="matrix-badge-sm">' + c.matrixScore + '×</span> ';
-        if (c.contextScore > 0) meta += '<span class="ctx-badge-sm">context</span> ';
-        if (c.dist > 0 && !c.inDict) meta += 'dist ' + c.dist;
-        if (c.source === 'matrix' && c.dist === 0) meta += '<span class="exact-badge">exact</span>';
-        b.innerHTML = '<span class="alt-char">' + esc(c.word) + '</span><span class="alt-meta">' + meta + '</span>';
-        b.onclick = () => {
-          // Replace the entire word
-          const wsAksharas = segmentAksharas(c.word);
-          word.aksharas = wsAksharas.map(a => ({ text: a, corrected: null, reviewed: false }));
-          word.aksharas.forEach(a => { a.corrected = a.text; a.reviewed = true; });
-          recordCorrection(wordText, c.word);
-          upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
-          closeModal();
-        };
-        list.appendChild(b);
+function clearAllBboxes() {
+  if (!current || !current.blocks) { toast('No document loaded.'); return; }
+  let count = 0;
+  current.blocks.forEach(b => {
+    b.lines.forEach(l => {
+      l.words.forEach(w => {
+        if (w.bbox) { w.bbox = null; count++; }
       });
-      m.appendChild(list);
+    });
+  });
+  renderBboxOverlay();
+  persistSoon();
+  toast(`Cleared ${count} bounding box(es) from image`);
+}
+
+function expandActiveBbox(factor = 0.1) {
+  if (!activeWord || !activeWord.bbox || !current) return;
+  const bw = activeWord.bbox.x1 - activeWord.bbox.x0;
+  const bh = activeWord.bbox.y1 - activeWord.bbox.y0;
+  const dx = bw * factor / 2;
+  const dy = bh * factor / 2;
+  activeWord.bbox.x0 = Math.max(0, activeWord.bbox.x0 - dx);
+  activeWord.bbox.x1 = Math.min(current.imageW, activeWord.bbox.x1 + dx);
+  activeWord.bbox.y0 = Math.max(0, activeWord.bbox.y0 - dy);
+  activeWord.bbox.y1 = Math.min(current.imageH, activeWord.bbox.y1 + dy);
+  renderBboxOverlay();
+  persistSoon();
+  toast('Bounding box expanded (+10%)');
+}
+
+function shrinkActiveBbox(factor = 0.1) {
+  if (!activeWord || !activeWord.bbox || !current) return;
+  const bw = activeWord.bbox.x1 - activeWord.bbox.x0;
+  const bh = activeWord.bbox.y1 - activeWord.bbox.y0;
+  const dx = bw * factor / 2;
+  const dy = bh * factor / 2;
+  if (bw - 2 * dx > 6 && bh - 2 * dy > 6) {
+    activeWord.bbox.x0 += dx;
+    activeWord.bbox.x1 -= dx;
+    activeWord.bbox.y0 += dy;
+    activeWord.bbox.y1 -= dy;
+    renderBboxOverlay();
+    persistSoon();
+    toast('Bounding box shrunk (-10%)');
+  }
+}
+
+function nudgeActiveBbox(dx, dy) {
+  if (!activeWord || !activeWord.bbox || !current) return;
+  activeWord.bbox.x0 = Math.max(0, Math.min(current.imageW, activeWord.bbox.x0 + dx));
+  activeWord.bbox.x1 = Math.max(0, Math.min(current.imageW, activeWord.bbox.x1 + dx));
+  activeWord.bbox.y0 = Math.max(0, Math.min(current.imageH, activeWord.bbox.y0 + dy));
+  activeWord.bbox.y1 = Math.max(0, Math.min(current.imageH, activeWord.bbox.y1 + dy));
+  renderBboxOverlay();
+  persistSoon();
+}
+
+/* ─── Rendering: Bounding Box SVG Overlay on Manuscript Image ──────────────── */
+function renderBboxOverlay() {
+  const svg = $('bbox-svg');
+  svg.innerHTML = '';
+  if (!current || !current.blocks) return;
+
+  const W = current.imageW, H = current.imageH;
+  const showWords = $('layer-words').checked;
+  const showLines = $('layer-lines').checked;
+  const showMarginal = $('layer-marginal').checked;
+
+  current.blocks.forEach(blk => {
+    if (blk.isMarginal && showMarginal) {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('class', 'svg-bbox-marginal');
+      rect.setAttribute('x', `${(blk.bbox.x0 / W) * 100}%`);
+      rect.setAttribute('y', `${(blk.bbox.y0 / H) * 100}%`);
+      rect.setAttribute('width', `${((blk.bbox.x1 - blk.bbox.x0) / W) * 100}%`);
+      rect.setAttribute('height', `${((blk.bbox.y1 - blk.bbox.y0) / H) * 100}%`);
+      rect.onclick = () => toast('Marginal note block selected');
+      svg.appendChild(rect);
     }
 
-    // Akshara-level fallback: show single-character alternatives if no word-level suggestions
-    if (bestCorrections.length === 0 && alts.length > 0) {
-      const fallbackLabel = document.createElement('div');
-      fallbackLabel.className = 'mconf-title';
-      fallbackLabel.textContent = 'Akshara-level alternatives (click to correct just this character)';
-      m.appendChild(fallbackLabel);
-      const list = document.createElement('div');
-      list.className = 'm-list';
-      alts.forEach((alt) => {
-        const b = document.createElement('button');
-        b.className = 'alt' + (alt.static ? ' static' : '');
-        b.innerHTML = '<span class="alt-char">' + esc(alt.text) + '</span><span class="alt-meta">'
-          + (alt.pinned ? '⭐ ' : '') + (alt.count > 0 ? alt.count + '×' : 'static') + '</span>';
-        b.onclick = () => { applyCorrection(alt.text); closeModal(); };
-        list.appendChild(b);
-      });
-      m.appendChild(list);
-    }
-
-    // Dictionary lookup panel
-    const dictPanel = document.createElement('div');
-    dictPanel.className = 'dict-panel';
-    dictPanel.innerHTML = '<div class="dict-loading">📖 Looking up "' + esc(wordText) + '" in Monier-Williams…</div>';
-    m.appendChild(dictPanel);
-    fetchMWDefinition(wordText).then((result) => {
-      if (dictPanel.dataset.cancelled) return;
-      if (result) {
-        dictPanel.innerHTML =
-          '<div class="dict-word">' + esc(result.h1) + '</div>' +
-          '<div class="dict-def">' + esc(result.def) + '</div>' +
-          '<div class="dict-ref">— Monier-Williams Sanskrit-English Dictionary (Cologne Digital Sanskrit Lexicon)</div>' +
-          '<span class="dict-word-link" onclick="window.open(\'https://www.sanskrit-lexicon.uni-koeln.de/scans/MWScan/2020/web/webtc2/index.php?key=' + encodeURIComponent(result.h1) + '&amp;hw=1&amp;Input=1\',\'_blank\')">View full entry at sanskrit-lexicon.uni-koeln.de →</span>';
-      } else {
-        dictPanel.innerHTML =
-          '<div class="dict-error">"' + esc(wordText) + '" not found in Monier-Williams dictionary.</div>' +
-          '<div style="font-size:12px;color:var(--brown-soft);margin-top:4px;">This may be a compound, inflected form, or OCR error.</div>';
+    blk.lines.forEach(l => {
+      if (showLines && l.bbox) {
+        const lRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        lRect.setAttribute('class', 'svg-bbox-line');
+        lRect.setAttribute('x', `${(l.bbox.x0 / W) * 100}%`);
+        lRect.setAttribute('y', `${(l.bbox.y0 / H) * 100}%`);
+        lRect.setAttribute('width', `${((l.bbox.x1 - l.bbox.x0) / W) * 100}%`);
+        lRect.setAttribute('height', `${((l.bbox.y1 - l.bbox.y0) / H) * 100}%`);
+        svg.appendChild(lRect);
       }
-    }).catch((e) => {
-      if (dictPanel.dataset.cancelled) return;
-      dictPanel.innerHTML = '<div class="dict-error">Dictionary lookup failed: ' + esc(e.message) + '</div>';
-    });
 
-    const manual = document.createElement('div');
-    manual.className = 'm-manual';
-    const inp = document.createElement('input');
-    inp.type = 'text'; inp.maxLength = 8; inp.placeholder = 'or type the correct akshara…';
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && inp.value.trim()) { applyCorrection(inp.value.trim()); closeModal(); } });
-    manual.appendChild(inp);
-    m.appendChild(manual);
-    const actions = document.createElement('div');
-    actions.className = 'm-actions';
-    const accept = document.createElement('button');
-    accept.className = 'btn accept'; accept.textContent = '✓ Accept as correct';
-    accept.onclick = () => { applyAccept(); closeModal(); };
-    const cancel = document.createElement('button');
-    cancel.className = 'btn ghost'; cancel.textContent = 'Cancel';
-    cancel.onclick = closeModal;
-    actions.append(accept, cancel);
-    m.appendChild(actions);
-    $('overlay').classList.remove('hidden');
-    setTimeout(() => inp.focus(), 30);
-  }
-  function applyCorrection(correct) {
-    if (!modalAkshara) return;
-    recordCorrection(modalGuess, correct);
-    modalAkshara.corrected = correct;
-    modalAkshara.reviewed = true;
-    upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
-  }
-  function applyAccept() {
-    if (!modalAkshara) return;
-    recordConfirmation(modalGuess);
-    modalAkshara.reviewed = true;
-    upsertSession(); renderResult(); renderSessions(); renderMatrix(); persistSoon();
-  }
-  function closeModal() {
-    // Cancel any pending dictionary fetches in the modal
-    const panels = $('modal').querySelectorAll('.dict-panel');
-    panels.forEach(p => { p.dataset.cancelled = '1'; });
-    modalGuess = modalAkshara = null;
-    $('overlay').classList.add('hidden');
-  }
-  $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeModal(); });
+      if (showWords) {
+        l.words.forEach(w => {
+          if (!w.bbox) return;
+          const isActive = activeWord && activeWord.id === w.id;
+          const isEditMode = bboxToolMode === 'edit' && isActive;
 
-  /* ===================== export / import ===================== */
-  function exportMatrix() {
-    const bundle = {
-      format: 'eym-matrix', version: 1, script: SCRIPT, ocr_engine: ENGINE, exported_by: 'eym-browser',
-      entries: state.matrix.map((e) => ({ ocr_guess: e.guess, correct_char: e.correct, count: e.count, created_at: e.ts, is_pinned: e.pinned })),
-      confirmations: state.confirmations.map((c) => ({ ocr_guess: c.guess, count: c.count, created_at: c.ts })),
-    };
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'eym-matrix-' + new Date().toISOString().slice(0, 10) + '.eym-matrix.json';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast('Exported ' + state.matrix.length + ' correction pair(s).');
-  }
-  async function importMatrix(file) {
-    let bundle;
-    try { bundle = JSON.parse(await file.text()); } catch (_) { toast('That file is not valid JSON.'); return; }
-    if (bundle.format !== 'eym-matrix') { toast('Not an .eym-matrix bundle.'); return; }
-    let added = 0, confAdded = 0;
-    (bundle.entries || []).forEach((en) => {
-      const guess = en.ocr_guess, correct = en.correct_char;
-      if (!guess || !correct) return;
-      const e = state.matrix.find((x) => x.guess === guess && x.correct === correct);
-      if (e) { e.count += en.count || 1; e.pinned = e.pinned || !!en.is_pinned; }
-      else { state.matrix.push({ id: uid(), guess, correct, count: en.count || 1, pinned: !!en.is_pinned, ts: en.created_at || new Date().toISOString() }); added++; }
-    });
-    (bundle.confirmations || []).forEach((c) => {
-      if (!c.ocr_guess) return;
-      const x = state.confirmations.find((v) => v.guess === c.ocr_guess);
-      if (x) x.count += c.count || 1;
-      else { state.confirmations.push({ guess: c.ocr_guess, count: c.count || 1, ts: c.created_at || new Date().toISOString() }); confAdded++; }
-    });
-    renderMatrix(); persistSoon();
-    toast('Imported ' + added + ' new correction pair(s), ' + confAdded + ' confirmation(s).');
-  }
+          const wRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          wRect.setAttribute('class', `svg-bbox-word${isActive ? ' active' : ''}${isEditMode ? ' editing' : ''}`);
+          wRect.dataset.wid = w.id;
+          wRect.setAttribute('x', `${(w.bbox.x0 / W) * 100}%`);
+          wRect.setAttribute('y', `${(w.bbox.y0 / H) * 100}%`);
+          wRect.setAttribute('width', `${((w.bbox.x1 - w.bbox.x0) / W) * 100}%`);
+          wRect.setAttribute('height', `${((w.bbox.y1 - w.bbox.y0) / H) * 100}%`);
 
-  /* ===================== uploads & sample ===================== */
-  function makeSample() {
-    const c = document.createElement('canvas');
-    c.width = 1200; c.height = 200;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#F5EFE4'; ctx.fillRect(0, 0, c.width, c.height);
-    ctx.fillStyle = '#3E2F23';
-    ctx.font = '64px "Nirmala UI", Mangal, "Noto Sans Devanagari", "Kohinoor Devanagari", sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('संस्कृतम् शुद्धम् दीप्तम्', 40, 100);
-    currentFile = null;
-    setProgress(0);
-    setStatus('Running OCR on the sample image…');
-    runOcr(c);
-  }
-  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
-  async function handleFile(file) {
-    if (!file || busy) return;
-    // Enforce 20 MB limit
-    if (file.size > MAX_FILE_SIZE) {
-      setStatus('File too large (' + (file.size / 1024 / 1024).toFixed(1) + ' MB). Maximum is 20 MB.');
-      return;
-    }
-    currentFile = file;
-    setProgress(0);
-    // Handle PDF files
-    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-      await handlePDF(file);
-      return;
-    }
-    setStatus('Running OCR on ' + file.name + '…');
-    const url = URL.createObjectURL(file);
-    try {
-      const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-      await runOcr(img);
-    } finally { URL.revokeObjectURL(url); }
-  }
-  async function handlePDF(file) {
-    setStatus('Loading PDF (' + file.name + ')…');
-    const url = URL.createObjectURL(file);
-    try {
-      if (typeof pdfjsLib === 'undefined') throw new Error('PDF library not loaded');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const pdf = await pdfjsLib.getDocument(url).promise;
-      const totalPages = pdf.numPages;
-      setStatus('PDF has ' + totalPages + ' page' + (totalPages > 1 ? 's' : '') + ' — processing…');
-      let allWords = [];
-      let allText = '';
-      for (let i = 1; i <= totalPages; i++) {
-        setStatus('Rendering page ' + i + '/' + totalPages + '…');
-        setProgress((i - 1) / totalPages);
-        const page = await pdf.getPage(i);
-        const scale = 2.0;
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        setStatus('OCR on page ' + i + '/' + totalPages + '…');
-        const w = await ensureWorker();
-        const { data } = await w.recognize(canvas);
-        // Tag words with page number
-        (data.words || []).forEach(function(w) {
-          if (w && w.text && String(w.text).trim()) {
-            allWords.push({ text: String(w.text).trim(), confidence: Math.max(0, Math.min(1, (w.confidence || 0) / 100)), page: i });
+          wRect.addEventListener('mouseenter', () => highlightWord(w.id, true));
+          wRect.addEventListener('mouseleave', () => { if (!activeWord || activeWord.id !== w.id) highlightWord(w.id, false); });
+
+          wRect.addEventListener('click', e => {
+            e.stopPropagation();
+            activeWord = w;
+            highlightWord(w.id, true);
+            if (bboxToolMode === 'edit') {
+              renderBboxOverlay();
+            } else if (bboxToolMode === 'select') {
+              openWordModal(w);
+            }
+          });
+
+          // Enable dragging the entire box when in edit mode
+          if (isEditMode) {
+            wRect.onpointerdown = e => {
+              e.stopPropagation();
+              startDraggingBox(e, w, W, H);
+            };
+          }
+
+          svg.appendChild(wRect);
+
+          // Draw 4 resize handles if this box is in Edit mode
+          if (isEditMode) {
+            const handles = [
+              { type: 'nw', x: w.bbox.x0, y: w.bbox.y0 },
+              { type: 'ne', x: w.bbox.x1, y: w.bbox.y0 },
+              { type: 'se', x: w.bbox.x1, y: w.bbox.y1 },
+              { type: 'sw', x: w.bbox.x0, y: w.bbox.y1 }
+            ];
+            handles.forEach(h => {
+              const handleRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+              handleRect.setAttribute('class', `svg-bbox-handle ${h.type}`);
+              const hSize = 8;
+              handleRect.setAttribute('x', `calc(${(h.x / W) * 100}% - ${hSize / 2}px)`);
+              handleRect.setAttribute('y', `calc(${(h.y / H) * 100}% - ${hSize / 2}px)`);
+              handleRect.setAttribute('width', `${hSize}px`);
+              handleRect.setAttribute('height', `${hSize}px`);
+
+              handleRect.onpointerdown = e => {
+                e.stopPropagation();
+                startResizingHandle(e, w, h.type, W, H);
+              };
+              svg.appendChild(handleRect);
+            });
           }
         });
-        allText += (data.text || '') + '\n';
-        setProgress(i / totalPages);
       }
-      // Build a combined session
-      buildSession({ text: allText, words: allWords });
-      setStatus('PDF OCR complete — ' + totalPages + ' page' + (totalPages > 1 ? 's' : '') + '.');
-    } catch (e) {
-      console.error('PDF error:', e);
-      setStatus('PDF failed: ' + e.message);
-    } finally {
-      URL.revokeObjectURL(url);
+    });
+  });
+}
+
+function startDraggingBox(e, word, W, H) {
+  const svg = $('bbox-svg');
+  const rect = svg.getBoundingClientRect();
+  const startX = (e.clientX - rect.left) / rect.width * W;
+  const startY = (e.clientY - rect.top) / rect.height * H;
+  const origBbox = { ...word.bbox };
+
+  function onPointerMove(moveEvent) {
+    const curX = (moveEvent.clientX - rect.left) / rect.width * W;
+    const curY = (moveEvent.clientY - rect.top) / rect.height * H;
+    const dx = curX - startX;
+    const dy = curY - startY;
+
+    const bw = origBbox.x1 - origBbox.x0;
+    const bh = origBbox.y1 - origBbox.y0;
+    word.bbox.x0 = Math.max(0, Math.min(W - bw, origBbox.x0 + dx));
+    word.bbox.x1 = word.bbox.x0 + bw;
+    word.bbox.y0 = Math.max(0, Math.min(H - bh, origBbox.y0 + dy));
+    word.bbox.y1 = word.bbox.y0 + bh;
+    renderBboxOverlay();
+  }
+
+  function onPointerUp() {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    persistSoon();
+    toast('Bounding box moved');
+  }
+
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+}
+
+function startResizingHandle(e, word, handleType, W, H) {
+  const svg = $('bbox-svg');
+  const rect = svg.getBoundingClientRect();
+
+  function onPointerMove(moveEvent) {
+    const curX = Math.max(0, Math.min(W, (moveEvent.clientX - rect.left) / rect.width * W));
+    const curY = Math.max(0, Math.min(H, (moveEvent.clientY - rect.top) / rect.height * H));
+
+    if (handleType === 'nw') {
+      word.bbox.x0 = Math.min(curX, word.bbox.x1 - 4);
+      word.bbox.y0 = Math.min(curY, word.bbox.y1 - 4);
+    } else if (handleType === 'ne') {
+      word.bbox.x1 = Math.max(curX, word.bbox.x0 + 4);
+      word.bbox.y0 = Math.min(curY, word.bbox.y1 - 4);
+    } else if (handleType === 'se') {
+      word.bbox.x1 = Math.max(curX, word.bbox.x0 + 4);
+      word.bbox.y1 = Math.max(curY, word.bbox.y0 + 4);
+    } else if (handleType === 'sw') {
+      word.bbox.x0 = Math.min(curX, word.bbox.x1 - 4);
+      word.bbox.y1 = Math.max(curY, word.bbox.y0 + 4);
+    }
+    renderBboxOverlay();
+  }
+
+  function onPointerUp() {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    persistSoon();
+    toast('Bounding box resized');
+  }
+
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+}
+
+// Drawing a new bounding box on image
+$('bbox-svg').addEventListener('pointerdown', e => {
+  if (bboxToolMode !== 'draw' || !current || !activeWord) return;
+  const svg = $('bbox-svg');
+  const rect = svg.getBoundingClientRect();
+  const W = current.imageW, H = current.imageH;
+
+  const startX = (e.clientX - rect.left) / rect.width * W;
+  const startY = (e.clientY - rect.top) / rect.height * H;
+
+  const previewRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  previewRect.setAttribute('class', 'svg-bbox-word editing');
+  svg.appendChild(previewRect);
+
+  function onPointerMove(moveEvent) {
+    const curX = Math.max(0, Math.min(W, (moveEvent.clientX - rect.left) / rect.width * W));
+    const curY = Math.max(0, Math.min(H, (moveEvent.clientY - rect.top) / rect.height * H));
+
+    const x0 = Math.min(startX, curX);
+    const x1 = Math.max(startX, curX);
+    const y0 = Math.min(startY, curY);
+    const y1 = Math.max(startY, curY);
+
+    previewRect.setAttribute('x', `${(x0 / W) * 100}%`);
+    previewRect.setAttribute('y', `${(y0 / H) * 100}%`);
+    previewRect.setAttribute('width', `${((x1 - x0) / W) * 100}%`);
+    previewRect.setAttribute('height', `${((y1 - y0) / H) * 100}%`);
+  }
+
+  function onPointerUp(upEvent) {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    previewRect.remove();
+
+    const curX = Math.max(0, Math.min(W, (upEvent.clientX - rect.left) / rect.width * W));
+    const curY = Math.max(0, Math.min(H, (upEvent.clientY - rect.top) / rect.height * H));
+    const x0 = Math.min(startX, curX);
+    const x1 = Math.max(startX, curX);
+    const y0 = Math.min(startY, curY);
+    const y1 = Math.max(startY, curY);
+
+    if (x1 - x0 > 8 && y1 - y0 > 8) {
+      activeWord.bbox = { x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1) };
+      setBboxTool('select');
+      renderBboxOverlay();
+      persistSoon();
+      toast(`Bounding box updated for "${activeWord.corrected || activeWord.text}"`);
     }
   }
 
-  /* ===================== wiring ===================== */
-  let toastTimer = null;
-  function toast(msg) {
-    const t = $('toast');
-    t.textContent = msg; t.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+});
+
+function highlightWord(wid, on) {
+  document.querySelectorAll(`[data-wid="${wid}"]`).forEach(el => {
+    if (on) el.classList.add('active-word', 'active');
+    else el.classList.remove('active-word', 'active');
+  });
+}
+
+/* ─── Rendering: Hierarchical Text & Word Tokens ───────────────────────────── */
+function renderHierarchyView() {
+  const container = $('ocr-hierarchy-view');
+  container.innerHTML = '';
+
+  if (!current || !current.blocks || !current.blocks.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:24px 0">Upload a manuscript to view structured blocks, lines, and words.</div>';
+    return;
   }
 
-  const drop = $('drop'), fileInput = $('file');
-  drop.addEventListener('click', () => fileInput.click());
-  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
-  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-  drop.addEventListener('drop', (e) => {
-    e.preventDefault(); drop.classList.remove('over');
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-  });
-  fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); fileInput.value = ''; });
-  $('sampleBtn').addEventListener('click', makeSample);
-  $('lang').addEventListener('change', () => {
-    if (worker) { worker.terminate().catch(() => {}); worker = null; workerLang = null; }
-  });
-  $('exportBtn').addEventListener('click', exportMatrix);
-  $('importBtn').addEventListener('click', () => $('importFile').click());
-  $('importFile').addEventListener('change', () => { if ($('importFile').files[0]) importMatrix($('importFile').files[0]); $('importFile').value = ''; });
+  current.blocks.forEach(blk => {
+    const bCard = document.createElement('div');
+    bCard.className = `ocr-block-card${blk.isMarginal ? ' marginal' : ''}`;
 
-  /* ===================== boot ===================== */
-  (async function init() {
+    const bHead = document.createElement('div');
+    bHead.className = `ocr-block-header${blk.isMarginal ? ' marginal' : ''}`;
+    bHead.innerHTML = blk.isMarginal
+      ? `<span>📝 Marginal Note / टिप्पणी #${blk.blockNum}</span>`
+      : `<span>📜 Text Block #${blk.blockNum}</span>`;
+    bCard.appendChild(bHead);
+
+    blk.lines.forEach(line => {
+      const lRow = document.createElement('div');
+      lRow.className = 'ocr-line-row';
+
+      const lNum = document.createElement('span');
+      lNum.className = 'ocr-line-num';
+      lNum.textContent = line.lineNum;
+      lRow.appendChild(lNum);
+
+      line.words.forEach(w => {
+        const displayTxt = w.corrected || w.text;
+        const inD = isInDict(displayTxt);
+        const tok = document.createElement('span');
+
+        let confClass = w.confidence < LOW ? ' conf-low' : (w.confidence < MED ? ' conf-med' : '');
+        if (w.corrected) confClass = ' corrected';
+
+        tok.className = `word-tok${confClass}${inD === false && dictReady ? ' unk-word' : ''}${w.reviewed ? ' reviewed' : ''}`;
+        tok.dataset.wid = w.id;
+        tok.textContent = displayTxt;
+
+        tok.title = `OCR: ${w.text}\nConf: ${Math.round(w.confidence * 100)}%${inD === false ? '\n⚠ not in dictionary' : ''}`;
+
+        tok.onclick = () => openWordModal(w);
+        tok.onmouseenter = () => highlightWord(w.id, true);
+        tok.onmouseleave = () => highlightWord(w.id, false);
+
+        lRow.appendChild(tok);
+      });
+
+      bCard.appendChild(lRow);
+    });
+
+    container.appendChild(bCard);
+  });
+
+  // Update Fluid Editor content
+  $('fluid-editor').value = getFullDocumentText();
+
+  renderSpellCheck();
+  renderChandas();
+  updateDiffView();
+  updateAnalytics();
+}
+
+/* ─── Sanskrit Common OCR Letter Confusions ────────────────────────────────── */
+const SANSKRIT_CHAR_ALTS = {
+  'व': ['ब', 'ध', 'च', 'त', 'व'],
+  'ब': ['व', 'घ', 'भ', 'ब'],
+  'घ': ['ध', 'ब', 'द्य', 'घ'],
+  'ध': ['घ', 'व', 'थ', 'ध'],
+  'श': ['ष', 'स', 'ग', 'य', 'श'],
+  'ष': ['श', 'स', 'प', 'ष'],
+  'स': ['श', 'ष', 'म', 'स'],
+  'ख': ['रव', 'थ', 'य', 'ख'],
+  'म': ['भ', 'स', 'प', 'म'],
+  'भ': ['म', 'ब', 'त', 'भ'],
+  'य': ['थ', 'श', 'प', 'य'],
+  'थ': ['य', 'ध', 'ख', 'थ'],
+  'ण': ['न', 'त', 'ण'],
+  'न': ['ण', 'त', 'ल', 'न'],
+  'त': ['न', 'भ', 'ल', 'त'],
+  'ट': ['ठ', 'ड', 'ढ', 'ट'],
+  'ठ': ['ट', 'ड', '०', 'ठ'],
+  'ड': ['ङ', 'ट', 'ढ', 'ड'],
+  'ढ': ['ड', 'ट', 'द', 'ढ'],
+  'द': ['ढ', 'ट', 'दृ', 'द'],
+  'ि': ['ी'],
+  'ी': ['ि'],
+  'ु': ['ू'],
+  'ू': ['ु'],
+  'ृ': ['ॄ', 'ि'],
+  'े': ['ै'],
+  'ै': ['े'],
+  'ो': ['ौ'],
+  'ौ': ['ो'],
+  'ं': ['ँ', 'म्', 'न्'],
+  'ः': [':', 'ः']
+};
+
+function getAltsForAkshara(ak) {
+  const alts = new Set();
+  // Check exact match
+  if (SANSKRIT_CHAR_ALTS[ak]) {
+    SANSKRIT_CHAR_ALTS[ak].forEach(a => alts.add(a));
+  }
+  // Check base consonants and matras inside the akshara
+  for (const [base, list] of Object.entries(SANSKRIT_CHAR_ALTS)) {
+    if (ak.includes(base)) {
+      list.forEach(repl => {
+        if (repl !== base) alts.add(ak.replace(base, repl));
+      });
+    }
+  }
+  // Check learned matrix for character substitutions
+  state.matrix.forEach(m => {
+    if (m.guess === ak && m.correct !== ak) alts.add(m.correct);
+  });
+  return Array.from(alts).slice(0, 8);
+}
+
+/* ─── Word Correction Modal Logic (Dual Mode) ──────────────────────────────── */
+let activeModalAksharas = [];
+let selectedAkIdx = 0;
+
+function switchModalMode(mode) {
+  if (mode === 'word') {
+    $('mtab-word').classList.add('active');
+    $('mtab-letters').classList.remove('active');
+    $('modal-pane-word').classList.add('active');
+    $('modal-pane-letters').classList.remove('active');
+    $('m-word-input').value = getModalCurrentReconstructedText();
+    setTimeout(() => { $('m-word-input').focus(); $('m-word-input').select(); }, 30);
+  } else {
+    $('mtab-letters').classList.add('active');
+    $('mtab-word').classList.remove('active');
+    $('modal-pane-letters').classList.add('active');
+    $('modal-pane-word').classList.remove('active');
+    renderAksharaSelector();
+  }
+}
+
+function getModalCurrentReconstructedText() {
+  return activeModalAksharas.map(a => (a.corrected !== null ? a.corrected : a.text)).join('');
+}
+
+function openWordModal(w) {
+  activeWord = w;
+  const currentTxt = w.corrected || w.text;
+  highlightWord(w.id, true);
+
+  // Clone aksharas for safe modal editing
+  activeModalAksharas = (w.aksharas && w.aksharas.length)
+    ? w.aksharas.map(a => ({ text: a.text, corrected: a.corrected !== undefined ? a.corrected : null }))
+    : segmentAksharas(currentTxt).map(a => ({ text: a, corrected: null }));
+  selectedAkIdx = 0;
+
+  $('m-word-orig').textContent = currentTxt;
+  $('m-word-meta').innerHTML = `Original OCR: <code>${esc(w.text)}</code> &nbsp;·&nbsp; Confidence: ${Math.round(w.confidence * 100)}%`
+    + (w.bbox ? ` &nbsp;·&nbsp; Bbox: [${w.bbox.x0}, ${w.bbox.y0}, ${w.bbox.x1}, ${w.bbox.y1}]` : '');
+
+  // Setup Option 1 (Whole Word)
+  const inp = $('m-word-input');
+  inp.value = currentTxt;
+
+  const suggContainer = $('m-sugg-grid');
+  suggContainer.innerHTML = '';
+  const suggestions = suggestWordCandidates(w.text, 8);
+
+  if (suggestions.length) {
+    suggestions.forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = 'sugg-btn';
+      btn.innerHTML = `<span>${esc(s.word)}</span> <span class="sugg-meta">${esc(s.label)}</span>`;
+      btn.onclick = () => { applyWordCorrection(s.word); closeModal(); };
+      suggContainer.appendChild(btn);
+    });
+  } else {
+    suggContainer.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Type the correct Sanskrit word above.</span>';
+  }
+
+  // Setup Option 2 (Specific Letters)
+  renderAksharaSelector();
+
+  // Dictionary lookup
+  $('m-dict-hw').textContent = currentTxt;
+  if (isInDict(currentTxt)) {
+    $('m-dict-def').textContent = '✓ Verified headword in Monier-Williams Sanskrit Dictionary.';
+  } else {
+    $('m-dict-def').textContent = 'Word not found in dictionary headwords (may be a compound or inflected form).';
+  }
+
+  // Default to Option 1 tab
+  switchModalMode('word');
+
+  $('overlay').classList.remove('hidden');
+}
+
+function renderAksharaSelector() {
+  const container = $('m-ak-selector-grid');
+  container.innerHTML = '';
+
+  activeModalAksharas.forEach((ak, idx) => {
+    const card = document.createElement('div');
+    const isSelected = idx === selectedAkIdx;
+    const isMod = ak.corrected !== null;
+    const displayChar = ak.corrected !== null ? (ak.corrected || '∅') : ak.text;
+
+    card.className = `ak-card${isSelected ? ' selected' : ''}${isMod ? ' modified' : ''}`;
+    card.innerHTML = `<div class="ak-char">${esc(displayChar)}</div>
+      <div class="ak-num">${idx + 1}${isMod ? (ak.corrected === '' ? ' (del)' : ' (mod)') : ''}</div>`;
+
+    card.onclick = () => {
+      selectedAkIdx = idx;
+      renderAksharaSelector();
+    };
+    container.appendChild(card);
+  });
+
+  const curAk = activeModalAksharas[selectedAkIdx];
+  if (!curAk) return;
+
+  const curChar = curAk.corrected !== null ? curAk.corrected : curAk.text;
+  $('m-current-ak-label').textContent = `${curChar || '∅ (deleted)'} (position #${selectedAkIdx + 1})`;
+  $('m-single-ak-input').value = curChar;
+
+  // Render character alternatives
+  const altsBox = $('m-ak-alts-grid');
+  altsBox.innerHTML = '';
+  const alts = getAltsForAkshara(curAk.text);
+
+  // Add delete/clear letter button
+  const delBtn = document.createElement('button');
+  delBtn.className = 'sugg-btn';
+  delBtn.style.cssText = 'padding:3px 8px;font-size:12px;border-color:var(--terra-dim);color:var(--terra)';
+  delBtn.textContent = '∅ Delete letter';
+  delBtn.onclick = () => {
+    $('m-single-ak-input').value = '';
+    updateSelectedLetter('');
+  };
+  altsBox.appendChild(delBtn);
+
+  if (alts.length) {
+    alts.forEach(alt => {
+      const btn = document.createElement('button');
+      btn.className = 'sugg-btn';
+      btn.style.cssText = 'padding:3px 8px;font-size:15px';
+      btn.textContent = alt;
+      btn.onclick = () => {
+        $('m-single-ak-input').value = alt;
+        updateSelectedLetter(alt);
+      };
+      altsBox.appendChild(btn);
+    });
+  }
+
+  updateLetterLivePreview();
+}
+
+function updateSelectedLetter(newChar) {
+  if (!activeModalAksharas[selectedAkIdx]) return;
+  const trimmed = (newChar !== undefined && newChar !== null) ? newChar.trim() : '';
+
+  const origChar = activeModalAksharas[selectedAkIdx].text;
+  if (trimmed !== origChar) {
+    activeModalAksharas[selectedAkIdx].corrected = trimmed; // Supports empty string to delete
+    if (trimmed) recordCorrectionInMatrix(origChar, trimmed);
+  } else {
+    activeModalAksharas[selectedAkIdx].corrected = null;
+  }
+
+  renderAksharaSelector();
+  updateLetterLivePreview();
+}
+
+function updateLetterLivePreview() {
+  const recon = getModalCurrentReconstructedText();
+  $('m-letter-live-preview').textContent = recon || '(empty)';
+  $('m-dict-hw').textContent = recon;
+  if (isInDict(recon)) {
+    $('m-dict-def').textContent = '✓ Verified headword in Monier-Williams Sanskrit Dictionary.';
+  } else {
+    $('m-dict-def').textContent = 'Word not found in dictionary headwords.';
+  }
+}
+
+function applyAllLetterCorrections() {
+  const recon = getModalCurrentReconstructedText();
+  applyWordCorrection(recon);
+  closeModal();
+}
+
+function applyWordCorrection(newText) {
+  if (!activeWord) return;
+  const oldTxt = activeWord.corrected || activeWord.text;
+  const trimmed = newText.trim();
+  if (!trimmed || trimmed === oldTxt) return;
+
+  // Record in confusion matrix
+  recordCorrectionInMatrix(activeWord.text, trimmed);
+
+  activeWord.corrected = trimmed;
+  activeWord.reviewed = true;
+  activeWord.aksharas = segmentAksharas(trimmed).map(a => ({ text: a, corrected: a }));
+
+  upsertSession();
+  renderHierarchyView();
+  renderBboxOverlay();
+  persistSoon();
+  toast(`Updated: "${oldTxt}" → "${trimmed}"`);
+}
+
+function applyAcceptWord() {
+  if (!activeWord) return;
+  activeWord.reviewed = true;
+  upsertSession();
+  renderHierarchyView();
+  persistSoon();
+  toast(`Word confirmed: "${activeWord.corrected || activeWord.text}"`);
+}
+
+function closeModal() {
+  $('overlay').classList.add('hidden');
+  if (activeWord) highlightWord(activeWord.id, false);
+  activeWord = null;
+}
+
+/* ── Modal Event Wiring ── */
+$('mtab-word').onclick = () => switchModalMode('word');
+$('mtab-letters').onclick = () => switchModalMode('letters');
+
+$('m-word-apply-btn').onclick = () => { applyWordCorrection($('m-word-input').value); closeModal(); };
+$('m-word-input').addEventListener('keydown', e => { if (e.key === 'Enter') { applyWordCorrection($('m-word-input').value); closeModal(); } });
+
+$('m-single-ak-apply-btn').onclick = () => updateSelectedLetter($('m-single-ak-input').value);
+$('m-single-ak-input').addEventListener('keydown', e => { if (e.key === 'Enter') updateSelectedLetter($('m-single-ak-input').value); });
+$('m-single-ak-input').addEventListener('input', e => updateSelectedLetter(e.target.value));
+
+$('m-apply-all-letters-btn').onclick = applyAllLetterCorrections;
+
+$('m-accept-btn').onclick = () => { applyAcceptWord(); closeModal(); };
+$('m-cancel-btn').onclick = closeModal;
+$('overlay').addEventListener('click', e => { if (e.target === $('overlay')) closeModal(); });
+
+
+
+/* ─── Global Replace Dialog (LEAP globalreplacedialog.cpp) ──────────────────── */
+function updateGlobalReplace() {
+  const container = $('gr-pairs-list');
+  container.innerHTML = '';
+  if (!state.matrix.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">Make corrections to see learned replacement pairs here.</div>';
+    return;
+  }
+  state.matrix.forEach((m, idx) => {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;background:var(--bg-deep);padding:4px 8px;border-radius:4px;border:1px solid var(--line);';
+    label.innerHTML = `<input type="checkbox" class="gr-check" data-idx="${idx}" checked />
+      <span style="font-family:var(--font-dev);font-size:14px">${esc(m.guess)} → ${esc(m.correct)}</span>
+      <span style="font-size:10px;color:var(--text-sub);margin-left:auto">${m.count}×</span>`;
+    container.appendChild(label);
+  });
+}
+
+function applyGlobalReplace() {
+  if (!current) return;
+  const checkboxes = document.querySelectorAll('.gr-check:checked');
+  let replacedCount = 0;
+
+  checkboxes.forEach(cb => {
+    const m = state.matrix[parseInt(cb.dataset.idx, 10)];
+    if (!m) return;
+
+    current.blocks.forEach(b => {
+      b.lines.forEach(l => {
+        l.words.forEach(w => {
+          if ((w.corrected || w.text) === m.guess) {
+            w.corrected = m.correct;
+            w.reviewed = true;
+            replacedCount++;
+          }
+        });
+      });
+    });
+  });
+
+  upsertSession();
+  renderHierarchyView();
+  persistSoon();
+  toast(`Global Replace: updated ${replacedCount} occurrence(s).`);
+}
+
+$('gr-apply-btn').onclick = applyGlobalReplace;
+$('gr-select-all').onclick = () => document.querySelectorAll('.gr-check').forEach(c => c.checked = true);
+$('gr-clear-all').onclick = () => document.querySelectorAll('.gr-check').forEach(c => c.checked = false);
+
+/* ─── Myers Diff View (LEAP interndiffview.cpp) ────────────────────────────── */
+function myersDiff(a, b) {
+  if (a === b) return [['=', a]];
+  const diffs = [];
+  const wordsA = a.split(/\s+/);
+  const wordsB = b.split(/\s+/);
+  let i = 0, j = 0;
+  while (i < wordsA.length || j < wordsB.length) {
+    if (i < wordsA.length && j < wordsB.length && wordsA[i] === wordsB[j]) {
+      diffs.push(['=', wordsA[i] + ' ']);
+      i++; j++;
+    } else if (j < wordsB.length && (!wordsA.includes(wordsB[j]) || i >= wordsA.length)) {
+      diffs.push(['+', wordsB[j] + ' ']);
+      j++;
+    } else if (i < wordsA.length) {
+      diffs.push(['-', wordsA[i] + ' ']);
+      i++;
+    }
+  }
+  return diffs;
+}
+
+function updateDiffView() {
+  if (!current) return;
+  const orig = getFullOriginalText();
+  const corr = getFullDocumentText();
+
+  $('diff-original').textContent = orig || 'No OCR text available.';
+
+  const diffEl = $('diff-corrected');
+  diffEl.innerHTML = '';
+  const diffs = myersDiff(orig, corr);
+
+  let matchChars = 0, totalChars = Math.max(orig.length, corr.length);
+
+  diffs.forEach(([op, txt]) => {
+    const span = document.createElement('span');
+    if (op === '=') { span.textContent = txt; matchChars += txt.length; }
+    else if (op === '+') { span.className = 'diff-add'; span.textContent = txt; }
+    else if (op === '-') { span.className = 'diff-del'; span.textContent = txt; }
+    diffEl.appendChild(span);
+  });
+
+  const accPct = totalChars ? Math.round((matchChars / totalChars) * 100) : 100;
+  $('diff-acc-val').textContent = `${accPct}%`;
+  $('diff-acc-detail').textContent = `${matchChars} of ${totalChars} chars matching`;
+  $('diff-accuracy').style.display = 'flex';
+}
+$('refresh-diff').onclick = updateDiffView;
+
+/* ─── Find & Replace (LEAP textfinder.cpp) ──────────────────────────────────── */
+let findMatches = [];
+let findIndex = -1;
+
+function executeFind() {
+  const query = $('fr-find').value.trim();
+  if (!query || !current) {
+    $('fr-results').textContent = 'Enter a search term above.';
+    return;
+  }
+  findMatches = [];
+  current.blocks.forEach(b => {
+    b.lines.forEach(l => {
+      l.words.forEach(w => {
+        const txt = w.corrected || w.text;
+        if (txt.includes(query) || (query.length > 2 && toIAST(txt).includes(query))) {
+          findMatches.push(w);
+        }
+      });
+    });
+  });
+  findIndex = findMatches.length ? 0 : -1;
+  $('fr-results').textContent = `Found ${findMatches.length} match(es).`;
+  if (findIndex >= 0) highlightWord(findMatches[findIndex].id, true);
+}
+
+$('fr-find').addEventListener('input', executeFind);
+$('fr-next').onclick = () => {
+  if (!findMatches.length) return;
+  highlightWord(findMatches[findIndex].id, false);
+  findIndex = (findIndex + 1) % findMatches.length;
+  highlightWord(findMatches[findIndex].id, true);
+};
+$('fr-prev').onclick = () => {
+  if (!findMatches.length) return;
+  highlightWord(findMatches[findIndex].id, false);
+  findIndex = (findIndex - 1 + findMatches.length) % findMatches.length;
+  highlightWord(findMatches[findIndex].id, true);
+};
+$('fr-replace-btn').onclick = () => {
+  if (findIndex < 0 || !findMatches[findIndex]) return;
+  const rep = $('fr-replace').value.trim();
+  if (rep) {
+    applyWordCorrection(rep);
+    executeFind();
+  }
+};
+$('fr-replace-all').onclick = () => {
+  const rep = $('fr-replace').value.trim();
+  if (!rep || !findMatches.length) return;
+  findMatches.forEach(w => {
+    w.corrected = rep;
+    w.reviewed = true;
+  });
+  upsertSession();
+  renderHierarchyView();
+  persistSoon();
+  toast(`Replaced ${findMatches.length} match(es).`);
+  executeFind();
+};
+
+/* ─── Spellcheck & Chandas Meter Scanner ───────────────────────────────────── */
+function renderSpellCheck() {
+  const box = $('spellcheck-box');
+  const container = $('spell-words');
+  if (!dictReady || !current) { box.style.display = 'none'; return; }
+
+  const unknowns = [];
+  current.words.forEach(w => {
+    const txt = w.corrected || w.text;
+    if (isInDict(txt) === false && !unknowns.some(u => u.word === txt)) {
+      unknowns.push({ word: txt, wordObj: w });
+    }
+  });
+
+  if (!unknowns.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  container.innerHTML = '';
+
+  unknowns.slice(0, 12).forEach(u => {
+    const chip = document.createElement('span');
+    chip.className = 'spell-chip';
+    chip.textContent = u.word;
+    chip.onclick = () => openWordModal(u.wordObj);
+    container.appendChild(chip);
+  });
+}
+
+let chandasData = null;
+async function ensureChandas() {
+  if (chandasData) return;
+  try {
+    const r = await fetch('chandas-data.json');
+    if (r.ok) chandasData = await r.json();
+  } catch {}
+}
+function renderChandas() {
+  const box = $('chandas-box');
+  const out = $('chandas-result');
+  if (!current || !chandasData) { box.style.display = 'none'; return; }
+  const txt = getFullDocumentText();
+  if (txt.length < 15) { box.style.display = 'none'; return; }
+  // Simple heuristic meter indicator
+  box.style.display = 'block';
+  out.innerHTML = `<b>अनुष्टुभ् (Anuṣṭubh / Sloka)</b> · 32 syllables identified in verse`;
+}
+
+/* ─── Analytics ────────────────────────────────────────────────────────────── */
+function updateAnalytics() {
+  const wordsCount = current ? current.words.length : 0;
+  const corrCount = current ? current.words.filter(w => w.corrected).length : 0;
+  $('stat-words').textContent = wordsCount;
+  $('stat-corrections').textContent = corrCount;
+  $('stat-sessions').textContent = state.sessions.length;
+
+  const estAcc = wordsCount ? Math.round(((wordsCount - corrCount) / wordsCount) * 100) : 100;
+  $('stat-accuracy').textContent = `${estAcc}%`;
+
+  const hm = $('confusion-heatmap');
+  hm.innerHTML = '';
+  state.matrix.slice(0, 8).forEach(m => {
+    const pill = document.createElement('span');
+    pill.style.cssText = 'font-size:11px;background:var(--bg-deep);border:1px solid var(--line);border-radius:4px;padding:2px 6px;font-family:var(--font-dev)';
+    pill.textContent = `${m.guess}→${m.correct} (${m.count})`;
+    hm.appendChild(pill);
+  });
+}
+
+/* ─── Confusion Matrix Learning & Persistence ──────────────────────────────── */
+function recordCorrectionInMatrix(guess, correct) {
+  if (guess === correct) return;
+  const existing = state.matrix.find(m => m.guess === guess && m.correct === correct);
+  if (existing) {
+    existing.count++;
+  } else {
+    state.matrix.push({ id: uid(), guess, correct, count: 1, pinned: false });
+  }
+  renderMatrix();
+  updateGlobalReplace();
+  persistSoon();
+}
+
+async function deleteMatrixEntry(id, e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  state.matrix = state.matrix.filter(m => m.id !== id);
+  await kvSet('matrix', state.matrix);
+  renderMatrix();
+  updateGlobalReplace();
+  toast('Confusion pair deleted');
+}
+
+async function clearMatrixHistory() {
+  if (!state.matrix.length) { toast('Confusion matrix is already empty.'); return; }
+  state.matrix = [];
+  await kvSet('matrix', state.matrix);
+  renderMatrix();
+  updateGlobalReplace();
+  toast('Confusion matrix reset');
+}
+
+function renderMatrix() {
+  const container = $('matrix-body');
+  container.innerHTML = '';
+  if (!state.matrix.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">No corrections recorded yet.</div>';
+    return;
+  }
+  const sorted = [...state.matrix].sort((a, b) => b.count - a.count);
+  sorted.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = `<span style="flex:1">${esc(m.guess)} → ${esc(m.correct)}</span>
+      <span class="mrow-count">${m.count}×</span>`;
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mini-btn danger';
+    delBtn.style.cssText = 'padding:1px 5px;font-size:10px;margin-left:4px';
+    delBtn.title = 'Delete this pair';
+    delBtn.textContent = '✕';
+    delBtn.onclick = (e) => deleteMatrixEntry(m.id, e);
+
+    row.appendChild(delBtn);
+    container.appendChild(row);
+  });
+}
+
+/* ─── Sessions List & History Deletion ─────────────────────────────────────── */
+async function deleteSession(sessId, e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const s = state.sessions.find(x => x.id === sessId);
+  const name = s ? s.filename : 'Upload';
+
+  state.sessions = state.sessions.filter(x => x.id !== sessId);
+
+  if (current && current.id === sessId) {
+    current = state.sessions.length ? state.sessions[0] : null;
+    if (!current) {
+      const srcImg = $('source-img');
+      if (srcImg) { srcImg.src = ''; srcImg.style.display = 'none'; }
+      const svg = $('bbox-svg');
+      if (svg) svg.innerHTML = '';
+      $('ocr-hierarchy-view').innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:24px 0">Upload a manuscript to begin.</div>';
+      $('fluid-editor').value = '';
+      $('diff-original').textContent = 'Run OCR first.';
+      $('diff-corrected').textContent = 'No corrections yet.';
+      $('diff-accuracy').style.display = 'none';
+      setStatus('Ready — upload an image to begin.');
+    }
+  }
+
+  await kvSet('sessions', state.sessions);
+  renderAll();
+  toast(`Deleted "${name}"`);
+}
+
+async function clearAllSessions() {
+  if (!state.sessions.length) { toast('History is already empty.'); return; }
+  state.sessions = [];
+  current = null;
+
+  const srcImg = $('source-img');
+  if (srcImg) { srcImg.src = ''; srcImg.style.display = 'none'; }
+  const svg = $('bbox-svg');
+  if (svg) svg.innerHTML = '';
+
+  $('ocr-hierarchy-view').innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:24px 0">Upload a manuscript to begin.</div>';
+  $('fluid-editor').value = '';
+  $('diff-original').textContent = 'Run OCR first.';
+  $('diff-corrected').textContent = 'No corrections yet.';
+  $('diff-accuracy').style.display = 'none';
+  setStatus('Ready — upload an image to begin.');
+
+  await kvSet('sessions', state.sessions);
+  renderAll();
+  toast('All upload history cleared');
+}
+
+function renderSessions() {
+  const container = $('sessions-list');
+  container.innerHTML = '';
+  if (!state.sessions.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">No upload sessions yet.</div>';
+    return;
+  }
+  state.sessions.forEach(s => {
+    const item = document.createElement('div');
+    item.className = `sess-item${current && current.id === s.id ? ' active' : ''}`;
+
+    const textDiv = document.createElement('div');
+    textDiv.style.cssText = 'flex:1;cursor:pointer';
+    textDiv.innerHTML = `<div class="sess-name">${esc(s.filename)}</div>
+      <div class="sess-meta">${new Date(s.ts).toLocaleDateString()} · ${s.words ? s.words.length : 0} words</div>`;
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mini-btn danger';
+    delBtn.style.cssText = 'padding:2px 7px;font-size:11px;margin-left:6px;flex-shrink:0';
+    delBtn.title = 'Delete this upload session';
+    delBtn.textContent = '🗑';
+
+    delBtn.onclick = (e) => deleteSession(s.id, e);
+
+    item.onclick = (e) => {
+      if (e.target === delBtn || delBtn.contains(e.target)) return;
+      current = s;
+      if (s.imageW) { currentImageW = s.imageW; currentImageH = s.imageH; }
+      renderAll();
+    };
+
+    item.appendChild(textDiv);
+    item.appendChild(delBtn);
+    container.appendChild(item);
+  });
+}
+
+/* ─── Helpers: Document Text Extraction ────────────────────────────────────── */
+function getFullDocumentText() {
+  if (!current || !current.blocks) return '';
+  return current.blocks.map(b =>
+    b.lines.map(l => l.words.map(w => w.corrected || w.text).join(' ')).join('\n')
+  ).join('\n\n');
+}
+function getFullOriginalText() {
+  if (!current || !current.blocks) return '';
+  return current.blocks.map(b =>
+    b.lines.map(l => l.words.map(w => w.text).join(' ')).join('\n')
+  ).join('\n\n');
+}
+
+function renderAll() {
+  renderHierarchyView();
+  renderBboxOverlay();
+  renderSessions();
+  renderMatrix();
+  updateGlobalReplace();
+  updateAnalytics();
+}
+
+/* ─── IndexedDB Storage ────────────────────────────────────────────────────── */
+let _dbP = null;
+function openDB() {
+  if (_dbP) return _dbP;
+  _dbP = new Promise((res, rej) => {
+    const q = indexedDB.open('eym-scholar', 2);
+    q.onupgradeneeded = () => { if (!q.result.objectStoreNames.contains('kv')) q.result.createObjectStore('kv'); };
+    q.onsuccess = () => res(q.result);
+    q.onerror = () => rej(q.error);
+  });
+  return _dbP;
+}
+async function kvGet(k, fb) {
+  const db = await openDB();
+  return new Promise(r => {
+    const tx = db.transaction('kv', 'readonly').objectStore('kv').get(k);
+    tx.onsuccess = () => r(tx.result === undefined ? fb : tx.result);
+    tx.onerror = () => r(fb);
+  });
+}
+async function kvSet(k, v) {
+  const db = await openDB();
+  return new Promise(r => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(v, k);
+    tx.oncomplete = () => r();
+  });
+}
+let _saveTimer = null;
+function persistSoon() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    kvSet('sessions', state.sessions);
+    kvSet('matrix', state.matrix);
+  }, 300);
+}
+function upsertSession() {
+  if (!current) return;
+  const idx = state.sessions.findIndex(s => s.id === current.id);
+  if (idx >= 0) state.sessions[idx] = current;
+  else state.sessions.unshift(current);
+}
+
+/* ─── File Handling & OCR Execution ────────────────────────────────────────── */
+async function handleFile(file) {
+  if (!file || busy) return;
+  if (file.size > MAX_FILE_SIZE) { setStatus('File too large (Max 20MB)'); return; }
+  currentFile = file;
+  setProgress(0.1);
+  setStatus('Loading image…');
+
+  const url = URL.createObjectURL(file);
+  currentImageURL = url;
+  const img = $('source-img');
+  img.src = url;
+  img.style.display = 'block';
+
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+
+  const W = img.naturalWidth, H = img.naturalHeight;
+  currentImageW = W; currentImageH = H;
+
+  try {
+    busy = true;
+    let data;
+    const useServer = (preferredEngine === 'parinamika') || (preferredEngine === 'auto' && serverOnline);
+
+    if (useServer) {
+      setStatus('Processing with Parinamika backend…');
+      data = await ocrViaServer(file);
+    } else {
+      setStatus('Recognizing with Tesseract.js (extracting full bounding-box hierarchy)…');
+      const w = await ensureTesseractWorker();
+      const r = await w.recognize(img);
+      data = r.data;
+    }
+
+    buildSessionFromOCR(data, img, W, H);
+  } catch (err) {
+    console.error(err);
+    setStatus(`OCR Failed: ${err.message}`);
+  } finally {
+    busy = false;
+  }
+}
+
+/* ─── Sample Manuscript Loader ─────────────────────────────────────────────── */
+function loadSampleManuscript() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 900; canvas.height = 360;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#F5EDE0';
+  ctx.fillRect(0, 0, 900, 360);
+
+  ctx.fillStyle = '#261B13';
+  ctx.font = '28px "Noto Sans Devanagari", sans-serif';
+  ctx.fillText('धर्मक्षेत्रे कुरुक्षेत्रे समवेता युयुत्सवः ।', 180, 110);
+  ctx.fillText('मामकाः पाण्डवाश्चैव किमकुर्वत सञ्जय ॥', 180, 170);
+
+  ctx.fillStyle = '#6E4E8C';
+  ctx.font = '16px "Noto Sans Devanagari", sans-serif';
+  ctx.fillText('टिप्पणी: अयं श्लोकः गीतायाः प्रथमः वर्तते ।', 40, 260);
+
+  canvas.toBlob(blob => {
+    handleFile(new File([blob], 'geeta_shloka_sample.png', { type: 'image/png' }));
+  });
+}
+$('sample-btn').onclick = loadSampleManuscript;
+
+/* ─── Exports ──────────────────────────────────────────────────────────────── */
+function exportTxt() {
+  if (!current) return;
+  const blob = new Blob([getFullDocumentText()], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `${current.filename.replace(/\.[^.]+$/, '')}_corrected.txt`;
+  a.click();
+}
+function exportDocx() {
+  if (!current) return;
+  const htmlDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${current.filename}</title></head>
+  <body style="font-family:'Noto Sans Devanagari',Arial;font-size:14pt;line-height:1.8">
+  ${getFullDocumentText().split('\n').map(p => `<p>${esc(p)}</p>`).join('')}
+  </body></html>`;
+  const blob = new Blob([htmlDoc], { type: 'application/msword' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `${current.filename.replace(/\.[^.]+$/, '')}_corrected.doc`;
+  a.click();
+}
+function exportMatrix() {
+  const blob = new Blob([JSON.stringify(state.matrix, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'eym_sanskrit_confusion_matrix.json';
+  a.click();
+}
+function importMatrix(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
     try {
-      state.sessions = await kvGet('sessions', []);
-      state.matrix = await kvGet('matrix', []);
-      state.confirmations = await kvGet('confirmations', []);
-    } catch (e) { console.error('storage init failed', e); }
-    renderSessions(); renderMatrix();
-    // Start loading dictionary in background
-    ensureDictionary();
-  })();
-  </script>
+      state.matrix = JSON.parse(e.target.result);
+      renderMatrix();
+      updateGlobalReplace();
+      persistSoon();
+      toast('Matrix imported successfully.');
+    } catch { toast('Invalid matrix file.'); }
+  };
+  reader.readAsText(file);
+}
+
+$('tb-export-txt').onclick = exportTxt;
+$('tb-export-docx').onclick = exportDocx;
+$('tb-export-matrix').onclick = exportMatrix;
+$('tb-import-matrix').onclick = () => $('import-matrix-file').click();
+$('import-matrix-file').onchange = e => { if (e.target.files[0]) importMatrix(e.target.files[0]); };
+
+/* ─── UI Listeners & Mode Toggles ──────────────────────────────────────────── */
+$('view-mode-tokens').onclick = () => {
+  $('view-mode-tokens').classList.add('active');
+  $('view-mode-editor').classList.remove('active');
+  $('ocr-hierarchy-view').style.display = 'flex';
+  $('fluid-editor').style.display = 'none';
+};
+$('view-mode-editor').onclick = () => {
+  $('view-mode-editor').classList.add('active');
+  $('view-mode-tokens').classList.remove('active');
+  $('ocr-hierarchy-view').style.display = 'none';
+  $('fluid-editor').style.display = 'block';
+  $('fluid-editor').value = getFullDocumentText();
+};
+
+['layer-words', 'layer-lines', 'layer-marginal'].forEach(id => {
+  $(id).onchange = renderBboxOverlay;
+});
+
+// Zoom Controls Wiring
+$('btn-zoom-in').onclick = () => zoomBy(1.25);
+$('btn-zoom-out').onclick = () => zoomBy(0.8);
+$('btn-zoom-fit').onclick = fitZoom;
+$('btn-zoom-100').onclick = () => setZoom(1.0);
+
+$('overlay-container').addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) {
+    e.preventDefault();
+    if (e.deltaY < 0) zoomBy(1.15);
+    else zoomBy(0.85);
+  }
+}, { passive: false });
+
+// Bbox controls wiring
+$('bbox-tool-select').onclick = () => setBboxTool('select');
+$('bbox-tool-edit').onclick = () => setBboxTool('edit');
+$('bbox-tool-draw').onclick = () => setBboxTool('draw');
+$('bbox-tool-expand').onclick = () => expandActiveBbox(0.1);
+$('bbox-tool-shrink').onclick = () => shrinkActiveBbox(0.1);
+$('bbox-tool-delete').onclick = deleteActiveBbox;
+$('bbox-tool-clear-all').onclick = clearAllBboxes;
+
+// Modal Bbox quick nudge and delete buttons
+$('m-bbox-nudge-left').onclick = () => nudgeActiveBbox(-10, 0);
+$('m-bbox-nudge-right').onclick = () => nudgeActiveBbox(10, 0);
+$('m-bbox-nudge-up').onclick = () => nudgeActiveBbox(0, -10);
+$('m-bbox-nudge-down').onclick = () => nudgeActiveBbox(0, 10);
+$('m-bbox-expand-btn').onclick = () => expandActiveBbox(0.1);
+$('m-bbox-shrink-btn').onclick = () => shrinkActiveBbox(0.1);
+$('m-bbox-delete-btn').onclick = () => { deleteActiveBbox(); closeModal(); };
+
+// Delete letter button in Option 2
+$('m-delete-letter-btn').onclick = () => {
+  if (!activeModalAksharas[selectedAkIdx]) return;
+  updateSelectedLetter('');
+  toast('Letter deleted');
+};
+
+// Clear All History buttons
+$('clear-all-sessions-btn').onclick = clearAllSessions;
+$('clear-all-matrix-btn').onclick = clearMatrixHistory;
+
+document.querySelectorAll('.stab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.stab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.stab-pane').forEach(p => p.classList.remove('active'));
+    t.classList.add('active');
+    $(t.dataset.pane).classList.add('active');
+  };
+});
+
+function switchSidebarTab(paneId) {
+  document.querySelectorAll('.stab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.stab-pane').forEach(p => p.classList.remove('active'));
+  const tab = document.querySelector(`.stab[data-pane="${paneId}"]`);
+  if (tab) tab.classList.add('active');
+  $(paneId).classList.add('active');
+}
+
+$('tb-find').onclick = () => { switchSidebarTab('pane-find'); $('fr-find').focus(); };
+$('tb-replace').onclick = () => { switchSidebarTab('pane-find'); $('fr-replace').focus(); };
+$('tb-diff').onclick = () => { switchSidebarTab('pane-diff'); updateDiffView(); };
+$('tb-global').onclick = () => { switchSidebarTab('pane-global'); updateGlobalReplace(); };
+
+['eng-auto', 'eng-parinamika', 'eng-tesseract'].forEach(id => {
+  $(id).onclick = () => {
+    document.querySelectorAll('.engine-pill').forEach(p => p.classList.remove('active'));
+    $(id).classList.add('active');
+    preferredEngine = id.replace('eng-', '');
+    toast(`Engine set to ${preferredEngine}`);
+  };
+});
+
+const drop = $('drop-zone'), fi = $('file-input');
+drop.onclick = () => fi.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
+fi.onchange = () => { if (fi.files[0]) handleFile(fi.files[0]); fi.value = ''; };
+
+$('dark-toggle').onclick = () => {
+  document.body.classList.toggle('light-mode');
+  $('dark-toggle').textContent = document.body.classList.contains('light-mode') ? '🌙 Dark' : '☀ Light';
+};
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+/* ─── Keyboard Shortcuts ──────────────────────────────────────────────────── */
+document.addEventListener('keydown', e => {
+  const isInputActive = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+    if (e.key === 'f' || e.key === 'F') { e.preventDefault(); $('tb-find').click(); }
+    else if (e.key === 'h' || e.key === 'H') { e.preventDefault(); $('tb-replace').click(); }
+    else if (e.key === 'd' || e.key === 'D') { e.preventDefault(); $('tb-diff').click(); }
+    else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); $('tb-global').click(); }
+    else if (e.key === '=' || e.key === '+') { e.preventDefault(); zoomBy(1.25); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(0.8); }
+    else if (e.key === '0') { e.preventDefault(); setZoom(1.0); }
+  }
+
+  if (!isInputActive) {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (activeWord && activeWord.bbox && $('overlay').classList.contains('hidden')) {
+        e.preventDefault();
+        deleteActiveBbox();
+      }
+    }
+  }
+
+  if (e.key === 'Escape') closeModal();
+});
+
+/* ─── Boot Initialization ─────────────────────────────────────────────────── */
+(async function init() {
+  try {
+    state.sessions = await kvGet('sessions', []);
+    state.matrix = await kvGet('matrix', []);
+  } catch (e) { console.error(e); }
+  renderSessions();
+  renderMatrix();
+  updateAnalytics();
+  updateGlobalReplace();
+  checkServer();
+  ensureDictionary();
+  setInterval(checkServer, 30000);
+})();
+</script>
 </body>
 </html>

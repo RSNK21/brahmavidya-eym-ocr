@@ -1,0 +1,26 @@
+# EyM OCR Server — Python Dependencies
+# Install with: pip install -r requirements_ocr.txt
+
+# Core web framework
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# Image processing (required)
+opencv-python>=4.7.0
+Pillow>=9.0.0
+numpy>=1.21.0
+
+# Parinamika model (TF 1.15 — requires Python 3.6-3.7 and CUDA if GPU)
+# Uncomment if you have the Parinamika model downloaded in modelss/
+# tensorflow==1.15.0
+# tensorflow-estimator==1.15.1
+
+# Tesseract Python wrapper (fallback OCR, requires system Tesseract install)
+pytesseract>=0.3.10
+
+# PDF support
+# Wand>=0.6.5        # Requires ImageMagick system install
+# python-docx>=0.8.10
+
+# Utilities
+requests>=2.28.0
