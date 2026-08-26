@@ -13,13 +13,13 @@
    ═══════════════════════════════════════════════════════════════════════════════ */
 :root {
   --bg-deep:      #0C0806;
-  --bg-main:      #140E0A;
-  --bg-card:      #1C140E;
-  --bg-card2:     #261B13;
-  --bg-hover:     #352419;
-  --bg-input:     #120C07;
-  --line:         #382516;
-  --line2:        #523620;
+  --bg-main:      rgba(20, 14, 10, 0.85);
+  --bg-card:      rgba(28, 20, 14, 0.84);
+  --bg-card2:     rgba(38, 27, 19, 0.88);
+  --bg-hover:     rgba(53, 36, 25, 0.92);
+  --bg-input:     rgba(18, 12, 7, 0.88);
+  --line:         rgba(75, 48, 28, 0.55);
+  --line2:        rgba(105, 68, 40, 0.65);
 
   --terra:        #E2725B;
   --terra-dark:   #C4553F;
@@ -56,21 +56,38 @@
 
   --font-sans:    'Outfit', system-ui, sans-serif;
   --font-dev:     'Noto Sans Devanagari', 'Nirmala UI', 'Mangal', sans-serif;
+
+  /* Background Image & Overlay Tokens — Dark Mode (Default) */
+  --bg-img-filter: brightness(0.24) contrast(1.22) saturate(0.85);
+  --bg-overlay:    radial-gradient(circle at 50% 30%, rgba(12, 8, 6, 0.45) 0%, rgba(12, 8, 6, 0.85) 100%),
+                   linear-gradient(180deg, rgba(20, 14, 10, 0.4) 0%, rgba(12, 8, 6, 0.75) 100%);
+  --backdrop-blur: blur(12px);
+  --header-bg:     linear-gradient(135deg, rgba(38, 27, 19, 0.88) 0%, rgba(28, 20, 14, 0.92) 100%);
+  --toolbar-bg:    rgba(28, 20, 14, 0.88);
+  --sidebar-bg:    rgba(24, 17, 12, 0.88);
 }
 
 body.light-mode {
   --bg-deep:      #F7F1E6;
-  --bg-main:      #FCF8F2;
-  --bg-card:      #FFFFFF;
-  --bg-card2:     #F3E9D9;
-  --bg-hover:     #E8DCBE;
-  --bg-input:     #FFFFFF;
-  --line:         #D8C6A8;
-  --line2:        #B59E7E;
+  --bg-main:      rgba(252, 248, 242, 0.88);
+  --bg-card:      rgba(255, 255, 255, 0.88);
+  --bg-card2:     rgba(243, 233, 217, 0.92);
+  --bg-hover:     rgba(232, 220, 190, 0.95);
+  --bg-input:     rgba(255, 255, 255, 0.95);
+  --line:         rgba(216, 198, 168, 0.75);
+  --line2:        rgba(181, 158, 126, 0.85);
   --text-main:    #342416;
   --text-sub:     #73563D;
   --text-muted:   #9C8068;
-  --shadow-card:  0 2px 14px rgba(60,40,25,.09);
+  --shadow-card:  0 4px 18px rgba(60,40,25,.12);
+
+  /* Background Image & Overlay Tokens — Light Mode */
+  --bg-img-filter: brightness(1.02) contrast(0.96) saturate(0.92);
+  --bg-overlay:    radial-gradient(circle at 50% 30%, rgba(247, 241, 230, 0.65) 0%, rgba(243, 233, 217, 0.86) 100%),
+                   linear-gradient(180deg, rgba(252, 248, 242, 0.45) 0%, rgba(247, 241, 230, 0.82) 100%);
+  --header-bg:     linear-gradient(135deg, rgba(243, 233, 217, 0.92) 0%, rgba(255, 255, 255, 0.94) 100%);
+  --toolbar-bg:    rgba(255, 255, 255, 0.92);
+  --sidebar-bg:    rgba(250, 244, 235, 0.92);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -82,8 +99,50 @@ body {
   min-height: 100vh;
   line-height: 1.55;
   font-size: 13.5px;
-  transition: background .25s, color .25s;
+  transition: background .35s ease, color .35s ease;
   overflow-x: hidden;
+  position: relative;
+}
+
+/* ── Optimized Responsive Background Image Layer ── */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-color: var(--bg-deep);
+  background-image: url("eym bg.png");
+  background-image: -webkit-image-set(
+    url("eym-bg.webp") 1x,
+    url("eym-bg.jpg") 1x,
+    url("eym-bg.png") 1x,
+    url("eym%20bg.png") 1x
+  );
+  background-image: image-set(
+    url("eym-bg.webp") type("image/webp"),
+    url("eym-bg.jpg") type("image/jpeg"),
+    url("eym-bg.png") type("image/png"),
+    url("eym%20bg.png") type("image/png")
+  );
+  background-size: cover;
+  background-position: center center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  filter: var(--bg-img-filter);
+  transform: translateZ(0);
+  transition: filter 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: filter;
+}
+
+/* ── Scholar Contrast & Vignette Blend Overlay Layer ── */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg-overlay);
+  pointer-events: none;
+  transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -96,7 +155,9 @@ code { font-family: 'Courier New', monospace; font-size: .9em; background: var(-
 
 /* ── Header ── */
 #app-header {
-  background: linear-gradient(135deg, var(--bg-card2) 0%, var(--bg-card) 100%);
+  background: var(--header-bg);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
   border-bottom: 1px solid var(--line);
   padding: 10px 18px;
   display: flex;
@@ -130,7 +191,9 @@ code { font-family: 'Courier New', monospace; font-size: .9em; background: var(-
 #toolbar {
   display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
   padding: 6px 16px; border-bottom: 1px solid var(--line);
-  background: var(--bg-card);
+  background: var(--toolbar-bg);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
 }
 .tool-btn {
   display: inline-flex; align-items: center; gap: 4px;
@@ -174,12 +237,19 @@ code { font-family: 'Courier New', monospace; font-size: .9em; background: var(-
 #sidebar {
   border-left: 1px solid var(--line);
   display: flex; flex-direction: column;
-  background: var(--bg-card); overflow: hidden;
+  background: var(--sidebar-bg);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  overflow: hidden;
 }
 
 #sidebar-tabs {
   display: flex; border-bottom: 1px solid var(--line);
-  background: var(--bg-deep); overflow-x: auto;
+  background: rgba(12, 8, 6, 0.4);
+  overflow-x: auto;
+}
+body.light-mode #sidebar-tabs {
+  background: rgba(243, 233, 217, 0.5);
 }
 .stab {
   padding: 8px 12px; font-size: 11px; font-weight: 600;
@@ -195,6 +265,8 @@ code { font-family: 'Courier New', monospace; font-size: .9em; background: var(-
 /* ── Cards ── */
 .card {
   background: var(--bg-card);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 12px 14px;
@@ -580,6 +652,8 @@ code { font-family: 'Courier New', monospace; font-size: .9em; background: var(-
 
 #modal {
   background: var(--bg-card); border: 1px solid var(--line2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-radius: var(--radius-md); max-width: 560px; width: 100%;
   max-height: 90vh; overflow-y: auto; padding: 18px;
   box-shadow: 0 10px 40px rgba(0,0,0,.7);
@@ -755,6 +829,12 @@ code { font-family: 'Courier New', monospace; font-size: .9em; background: var(-
       <div class="card" id="image-overlay-card">
         <div class="card-title">
           <span>📷 Manuscript Bounding Boxes</span>
+          <div id="pdf-nav-bar" style="display:none; align-items:center; gap:6px; margin-left:auto; margin-right:8px; background:var(--surface2, rgba(0,0,0,0.15)); padding:2px 8px; border-radius:4px; border:1px solid var(--border, #ccc)">
+            <span style="font-size:11px; font-weight:600; color:var(--text-sub)">PDF Page:</span>
+            <button class="mini-btn" id="pdf-prev-btn" title="Previous Page">◀ Prev</button>
+            <span style="font-size:11px; font-weight:600;" id="pdf-page-indicator">1 / 1</span>
+            <button class="mini-btn" id="pdf-next-btn" title="Next Page">Next ▶</button>
+          </div>
           <div style="display:flex;align-items:center;gap:4px">
             <span class="zoom-level-badge" id="zoom-badge">100%</span>
             <button class="mini-btn" id="btn-zoom-in" title="Zoom In (Ctrl + Wheel)">🔍+ In</button>
@@ -1047,6 +1127,9 @@ let serverOnline = false;
 let preferredEngine = 'auto';     // 'auto' | 'parinamika' | 'tesseract'
 let activeWord = null;            // Currently selected word object for modal
 let editorMode = 'tokens';        // 'tokens' | 'editor'
+let activePdfDoc = null;
+let activePdfPageNum = 1;
+let totalPdfPages = 0;
 
 /* ─── Server Health Check ─────────────────────────────────────────────────── */
 async function checkServer() {
@@ -2488,17 +2571,57 @@ function upsertSession() {
 }
 
 /* ─── File Handling & OCR Execution ────────────────────────────────────────── */
-async function handleFile(file) {
-  if (!file || busy) return;
-  if (file.size > MAX_FILE_SIZE) { setStatus('File too large (Max 20MB)'); return; }
-  currentFile = file;
-  setProgress(0.1);
-  setStatus('Loading image…');
+function updatePdfNavUI() {
+  const indicator = $('pdf-page-indicator');
+  const prevBtn = $('pdf-prev-btn');
+  const nextBtn = $('pdf-next-btn');
+  if (indicator) indicator.textContent = `${activePdfPageNum} / ${totalPdfPages}`;
+  if (prevBtn) prevBtn.disabled = (activePdfPageNum <= 1);
+  if (nextBtn) nextBtn.disabled = (activePdfPageNum >= totalPdfPages);
+}
 
-  const url = URL.createObjectURL(file);
-  currentImageURL = url;
+async function changePdfPage(delta) {
+  if (!activePdfDoc || busy) return;
+  const newPage = activePdfPageNum + delta;
+  if (newPage < 1 || newPage > totalPdfPages) return;
+  activePdfPageNum = newPage;
+  updatePdfNavUI();
+  await processPdfPage(activePdfPageNum);
+}
+
+async function processPdfPage(pageNum) {
+  if (!activePdfDoc) return;
+  try {
+    busy = true;
+    setProgress(0.2);
+    setStatus(`Rendering PDF page ${pageNum} of ${totalPdfPages}…`);
+    const page = await activePdfDoc.getPage(pageNum);
+    
+    // Scale 2.0 ensures 150-200 DPI crispness for Devanagari OCR
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+
+    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    const url = URL.createObjectURL(blob);
+
+    await processImageSource(url, blob);
+  } catch (err) {
+    console.error(err);
+    setStatus(`Page ${pageNum} render failed: ${err.message}`);
+  } finally {
+    busy = false;
+  }
+}
+
+async function processImageSource(imageURL, blobOrFile) {
+  currentImageURL = imageURL;
   const img = $('source-img');
-  img.src = url;
+  img.src = imageURL;
   img.style.display = 'block';
 
   await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
@@ -2508,12 +2631,13 @@ async function handleFile(file) {
 
   try {
     busy = true;
+    setProgress(0.4);
     let data;
     const useServer = (preferredEngine === 'parinamika') || (preferredEngine === 'auto' && serverOnline);
 
     if (useServer) {
       setStatus('Processing with Parinamika backend…');
-      data = await ocrViaServer(file);
+      data = await ocrViaServer(blobOrFile);
     } else {
       setStatus('Recognizing with Tesseract.js (extracting full bounding-box hierarchy)…');
       const w = await ensureTesseractWorker();
@@ -2521,12 +2645,53 @@ async function handleFile(file) {
       data = r.data;
     }
 
+    setProgress(1.0);
     buildSessionFromOCR(data, img, W, H);
   } catch (err) {
     console.error(err);
     setStatus(`OCR Failed: ${err.message}`);
   } finally {
     busy = false;
+  }
+}
+
+async function handleFile(file) {
+  if (!file || busy) return;
+  if (file.size > MAX_FILE_SIZE) { setStatus('File too large (Max 20MB)'); return; }
+  currentFile = file;
+  setProgress(0.1);
+
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  const pdfNav = $('pdf-nav-bar');
+
+  if (isPdf) {
+    setStatus(`Loading PDF document (${(file.size / (1024 * 1024)).toFixed(1)} MB)…`);
+    try {
+      if (typeof pdfjsLib === 'undefined') {
+        throw new Error('PDF.js library is not loaded');
+      }
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+      const arrayBuffer = await file.arrayBuffer();
+      activePdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      totalPdfPages = activePdfDoc.numPages;
+      activePdfPageNum = 1;
+
+      if (pdfNav) pdfNav.style.display = 'flex';
+      updatePdfNavUI();
+
+      await processPdfPage(activePdfPageNum);
+    } catch (err) {
+      console.error(err);
+      setStatus(`PDF Load Failed: ${err.message}`);
+      if (pdfNav) pdfNav.style.display = 'none';
+    }
+  } else {
+    if (pdfNav) pdfNav.style.display = 'none';
+    activePdfDoc = null;
+    setStatus('Loading image…');
+    const url = URL.createObjectURL(file);
+    await processImageSource(url, file);
   }
 }
 
@@ -2698,6 +2863,9 @@ drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
 drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
 fi.onchange = () => { if (fi.files[0]) handleFile(fi.files[0]); fi.value = ''; };
+
+if ($('pdf-prev-btn')) $('pdf-prev-btn').onclick = () => changePdfPage(-1);
+if ($('pdf-next-btn')) $('pdf-next-btn').onclick = () => changePdfPage(1);
 
 $('dark-toggle').onclick = () => {
   document.body.classList.toggle('light-mode');

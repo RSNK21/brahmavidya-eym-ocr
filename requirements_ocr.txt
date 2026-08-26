@@ -19,7 +19,7 @@ numpy>=1.21.0
 pytesseract>=0.3.10
 
 # PDF support
-# Wand>=0.6.5        # Requires ImageMagick system install
+PyMuPDF>=1.23.0     # Fast pure-Python PDF page rasterizer
 # python-docx>=0.8.10
 
 # Utilities

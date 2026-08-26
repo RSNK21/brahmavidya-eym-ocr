@@ -72,6 +72,21 @@ except ImportError:
     CV2_AVAILABLE = False
     log.warning("cv2/PIL not available — line segmentation disabled")
 
+# ── PyMuPDF (PDF rasterization) ────────────────────────────────────────────────
+try:
+    import pymupdf as fitz
+    FITZ_AVAILABLE = True
+    log.info("PyMuPDF available for server-side PDF processing")
+except ImportError:
+    try:
+        import fitz
+        FITZ_AVAILABLE = True
+        log.info("PyMuPDF (fitz) available for server-side PDF processing")
+    except ImportError:
+        FITZ_AVAILABLE = False
+        log.warning("PyMuPDF not available — server-side PDF rasterization disabled")
+
+
 # ── Tesseract fallback ────────────────────────────────────────────────────────
 try:
     import pytesseract
@@ -279,7 +294,47 @@ def health():
         "model_error": _model_error,
         "cv2": CV2_AVAILABLE,
         "tesseract": TESSERACT_AVAILABLE,
+        "fitz": FITZ_AVAILABLE,
     })
+
+
+def _rasterize_pdf_page(pdf_bytes: bytes, page_num: int = 0) -> bytes:
+    if not FITZ_AVAILABLE:
+        raise RuntimeError("PDF uploaded but PyMuPDF (fitz) is not installed on the server.")
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    if page_num < 0 or page_num >= len(doc):
+        page_num = 0
+    page = doc.load_page(page_num)
+    mat = fitz.Matrix(2.0, 2.0)
+    pix = page.get_pixmap(matrix=mat)
+    return pix.tobytes("png")
+
+
+def _get_image_bytes(req) -> bytes:
+    """Extract raw image bytes from either multipart or JSON request, converting PDF to PNG if needed."""
+    raw = None
+    if "image" in req.files:
+        raw = req.files["image"].read()
+    elif req.is_json:
+        data = req.json or {}
+        b64 = data.get("image_b64") or data.get("image")
+        if b64:
+            if "," in b64:
+                b64 = b64.split(",", 1)[1]
+            raw = base64.b64decode(b64)
+
+    if not raw:
+        raise ValueError("No image provided. Send 'image' as file upload or 'image_b64' in JSON.")
+
+    if raw.startswith(b"%PDF-"):
+        page_str = req.form.get("page") or (req.json or {}).get("page", 0)
+        try:
+            page_num = int(page_str)
+        except (ValueError, TypeError):
+            page_num = 0
+        return _rasterize_pdf_page(raw, page_num)
+
+    return raw
 
 
 @app.route("/segment", methods=["POST"])
