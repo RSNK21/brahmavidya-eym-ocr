@@ -2835,16 +2835,15 @@ function downloadFullTextAsPdf() {
         Source Document: ${current.filename} | Date: ${new Date().toLocaleDateString()}
       </div>
       ${text.split('\n').map(p => `<p>${p}</p>`).join('')}
-      <script>
-        window.onload = function() {
-          window.print();
-          window.close();
-        };
-      </script>
+      <!-- Printing is triggered after the generated document is fully loaded. -->
     </body>
     </html>
   `);
   printWin.document.close();
+  printWin.onload = function() {
+    printWin.print();
+    printWin.close();
+  };
 }
 
 function renderAll() {
