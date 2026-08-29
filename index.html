@@ -829,45 +829,63 @@ body.light-mode #sidebar-tabs {
     <!-- Interactive Split Workbench -->
     <div id="workbench-split">
 
-      <!-- Left Sub-card: Image & Bounding Box Overlay -->
-      <div class="card" id="image-overlay-card">
-        <div class="card-title">
-          <span>📷 Manuscript Bounding Boxes</span>
-          <div id="pdf-nav-bar" style="display:none; align-items:center; gap:6px; margin-left:auto; margin-right:8px; background:var(--surface2, rgba(0,0,0,0.15)); padding:2px 8px; border-radius:4px; border:1px solid var(--border, #ccc)">
-            <span style="font-size:11px; font-weight:600; color:var(--text-sub)">PDF Page:</span>
-            <button class="mini-btn" id="pdf-prev-btn" title="Previous Page">◀ Prev</button>
-            <span style="font-size:11px; font-weight:600;" id="pdf-page-indicator">1 / 1</span>
-            <button class="mini-btn" id="pdf-next-btn" title="Next Page">Next ▶</button>
+      <!-- Left Split Column -->
+      <div class="left-split-col" style="display:flex; flex-direction:column; gap:10px">
+
+        <!-- Left Sub-card: Image & Bounding Box Overlay -->
+        <div class="card" id="image-overlay-card" style="margin-bottom:0">
+          <div class="card-title">
+            <span>📷 Manuscript Bounding Boxes</span>
+            <div id="pdf-nav-bar" style="display:none; align-items:center; gap:6px; margin-left:auto; margin-right:8px; background:var(--surface2, rgba(0,0,0,0.15)); padding:2px 8px; border-radius:4px; border:1px solid var(--border, #ccc)">
+              <span style="font-size:11px; font-weight:600; color:var(--text-sub)">PDF Page:</span>
+              <button class="mini-btn" id="pdf-prev-btn" title="Previous Page">◀ Prev</button>
+              <span style="font-size:11px; font-weight:600;" id="pdf-page-indicator">1 / 1</span>
+              <button class="mini-btn" id="pdf-next-btn" title="Next Page">Next ▶</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span class="zoom-level-badge" id="zoom-badge">100%</span>
+              <button class="mini-btn" id="btn-zoom-in" title="Zoom In (Ctrl + Wheel)">🔍+ In</button>
+              <button class="mini-btn" id="btn-zoom-out" title="Zoom Out (Ctrl + Wheel)">🔍- Out</button>
+              <button class="mini-btn" id="btn-zoom-fit" title="Fit to Container Width">⤢ Fit</button>
+              <button class="mini-btn" id="btn-zoom-100" title="100% Native Resolution">1:1</button>
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:4px">
-            <span class="zoom-level-badge" id="zoom-badge">100%</span>
-            <button class="mini-btn" id="btn-zoom-in" title="Zoom In (Ctrl + Wheel)">🔍+ In</button>
-            <button class="mini-btn" id="btn-zoom-out" title="Zoom Out (Ctrl + Wheel)">🔍- Out</button>
-            <button class="mini-btn" id="btn-zoom-fit" title="Fit to Container Width">⤢ Fit</button>
-            <button class="mini-btn" id="btn-zoom-100" title="100% Native Resolution">1:1</button>
+          <div id="overlay-container">
+            <div id="overlay-wrapper">
+              <img id="source-img" src="" alt="Manuscript Source" style="display:none;" />
+              <svg id="bbox-svg"></svg>
+            </div>
+          </div>
+          <div class="bbox-controls-bar">
+            <button class="bbox-btn active" id="bbox-tool-select" title="Click box to select/edit word">🔍 Select</button>
+            <button class="bbox-btn" id="bbox-tool-edit" title="Show resize & move handles on selected box">📐 Edit/Drag</button>
+            <button class="bbox-btn" id="bbox-tool-draw" title="Click and drag on manuscript to draw new bounding box">➕ Draw Box</button>
+            <button class="bbox-btn" id="bbox-tool-expand" title="Expand bounding box by 10%">⇲ Expand</button>
+            <button class="bbox-btn" id="bbox-tool-shrink" title="Shrink bounding box by 10%">⇱ Shrink</button>
+            <button class="bbox-btn danger" id="bbox-tool-delete" title="Delete bounding box for active word">🗑 Delete Box</button>
+            <button class="bbox-btn danger" id="bbox-tool-clear-all" title="Clear all bounding boxes from image">🗑 Clear All</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:6px;font-size:10.5px;color:var(--text-sub);flex-wrap:wrap">
+            <label><input type="checkbox" id="layer-words" checked /> Words</label>
+            <label><input type="checkbox" id="layer-lines" checked /> Lines</label>
+            <label><input type="checkbox" id="layer-marginal" checked /> Marginalia (टिप्पणी)</label>
           </div>
         </div>
-        <div id="overlay-container">
-          <div id="overlay-wrapper">
-            <img id="source-img" src="" alt="Manuscript Source" style="display:none;" />
-            <svg id="bbox-svg"></svg>
+
+        <!-- Left Sub-card: Entire Extracted Text Box -->
+        <div class="card" id="extracted-text-card">
+          <div class="card-title" style="justify-content:space-between">
+            <span>📖 Entire Extracted Text (पूर्ण-पाठः)</span>
+            <div style="display:flex;gap:4px">
+              <button class="mini-btn" id="full-text-export-txt" title="Download as text file">⬇ .txt</button>
+              <button class="mini-btn" id="full-text-export-docx" title="Download as Word docx">⬇ .docx</button>
+              <button class="mini-btn" id="full-text-export-pdf" title="Download as PDF">⬇ .pdf</button>
+            </div>
           </div>
+          <textarea id="extracted-full-text-area" style="width:100%; min-height:180px; font-family:var(--font-dev); font-size:18px; line-height:1.7; background:var(--bg-input); color:var(--text-main); border:1px solid var(--line2); border-radius:var(--radius-sm); padding:10px; resize:vertical;" placeholder="Entire document text will appear here. You can make final manual corrections directly in this box."></textarea>
         </div>
-        <div class="bbox-controls-bar">
-          <button class="bbox-btn active" id="bbox-tool-select" title="Click box to select/edit word">🔍 Select</button>
-          <button class="bbox-btn" id="bbox-tool-edit" title="Show resize & move handles on selected box">📐 Edit/Drag</button>
-          <button class="bbox-btn" id="bbox-tool-draw" title="Click and drag on manuscript to draw new bounding box">➕ Draw Box</button>
-          <button class="bbox-btn" id="bbox-tool-expand" title="Expand bounding box by 10%">⇲ Expand</button>
-          <button class="bbox-btn" id="bbox-tool-shrink" title="Shrink bounding box by 10%">⇱ Shrink</button>
-          <button class="bbox-btn danger" id="bbox-tool-delete" title="Delete bounding box for active word">🗑 Delete Box</button>
-          <button class="bbox-btn danger" id="bbox-tool-clear-all" title="Clear all bounding boxes from image">🗑 Clear All</button>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:6px;font-size:10.5px;color:var(--text-sub);flex-wrap:wrap">
-          <label><input type="checkbox" id="layer-words" checked /> Words</label>
-          <label><input type="checkbox" id="layer-lines" checked /> Lines</label>
-          <label><input type="checkbox" id="layer-marginal" checked /> Marginalia (टिप्पणी)</label>
-        </div>
-      </div>
+
+      </div><!-- /left-split-col -->
 
       <!-- Right Sub-card: Structured OCR Results & Word Hierarchy -->
       <div class="card" id="transcription-card">
@@ -1324,17 +1342,10 @@ async function ocrViaServer(blobOrCanvas) {
 }
 
 /* ─── Build Hierarchical Document Session ─────────────────────────────────── */
-function buildSessionFromOCR(data, imgObj, imgW, imgH) {
-  currentImageW = imgW || 1000;
-  currentImageH = imgH || 800;
-
-  const blocks = [];
-  const W = currentImageW, H = currentImageH;
-
-  // Set estimated medium and quality in the UI
-  if (data.medium) {
-    currentMediumClass = data.medium.medium_class || 'paper_ink';
-    const degradation = data.medium.degradation_score ?? 0.0;
+function updateMediumBadge(medium) {
+  if (medium) {
+    currentMediumClass = medium.medium_class || 'paper_ink';
+    const degradation = medium.degradation_score ?? 0.0;
     const quality = Math.round((1.0 - degradation) * 100);
     
     const mediumMapping = {
@@ -1368,8 +1379,11 @@ function buildSessionFromOCR(data, imgObj, imgW, imgH) {
       badge.className = 'badge gold';
     }
   }
+}
 
-  // Check if server-side structured lines are available
+function parseOcrResponse(data, W, H) {
+  const blocks = [];
+  
   if (data.lines && data.lines.length) {
     const mainBlock = {
       id: uid(),
@@ -1539,8 +1553,21 @@ function buildSessionFromOCR(data, imgObj, imgW, imgH) {
     if (mainBlock.lines.length) blocks.push(mainBlock);
   }
 
-  // Create flat word list for analytics/matrix compatibility
   const flatWords = blocks.flatMap(b => b.lines.flatMap(l => l.words));
+  return { blocks, flatWords };
+}
+
+function buildSessionFromOCR(data, imgObj, imgW, imgH) {
+  currentImageW = imgW || 1000;
+  currentImageH = imgH || 800;
+  const W = currentImageW, H = currentImageH;
+
+  // Set estimated medium and quality
+  updateMediumBadge(data.medium);
+
+  const parsed = parseOcrResponse(data, W, H);
+  const blocks = parsed.blocks;
+  const flatWords = parsed.flatWords;
 
   current = {
     id: uid(),
@@ -2274,9 +2301,14 @@ function applyWordCorrection(newText) {
   activeWord.reviewed = true;
   activeWord.aksharas = segmentAksharas(trimmed).map(a => ({ text: a, corrected: a }));
 
+  if (current) {
+    current.manuallyEditedText = null;
+  }
+
   upsertSession();
   renderHierarchyView();
   renderBboxOverlay();
+  updateFullTextDisplay();
   persistSoon();
   toast(`Updated: "${oldTxt}" → "${trimmed}" (Logged to HTR store ✓)`);
 }
@@ -2706,6 +2738,115 @@ function getFullOriginalText() {
   ).join('\n\n');
 }
 
+function getExtractedDocumentText() {
+  if (!current) return '';
+  if (current.manuallyEditedText !== undefined && current.manuallyEditedText !== null) {
+    return current.manuallyEditedText;
+  }
+  if (current.pages && current.pages.length) {
+    return current.pages.map(p => {
+      const pageText = p.blocks.map(b =>
+        b.lines.map(l => l.words.map(w => w.corrected || w.text).join(' ')).join('\n')
+      ).join('\n\n');
+      return `--- Page ${p.pageNum} ---\n${pageText}`;
+    }).join('\n\n');
+  } else {
+    return getFullDocumentText();
+  }
+}
+
+function updateFullTextDisplay() {
+  const area = $('extracted-full-text-area');
+  if (area) {
+    if (document.activeElement !== area) {
+      area.value = getExtractedDocumentText();
+    }
+  }
+}
+
+function downloadFullTextAsTxt() {
+  if (!current) return;
+  const text = $('extracted-full-text-area').value;
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${current.filename.replace(/\.[^.]+$/, '')}_all_pages_corrected.txt`;
+  a.click();
+}
+
+function downloadFullTextAsDocx() {
+  if (!current) return;
+  const text = $('extracted-full-text-area').value;
+  
+  // Custom escape function for XML safety
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  
+  const htmlDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${current.filename}</title></head>
+  <body style="font-family:'Noto Sans Devanagari',Arial;font-size:14pt;line-height:1.8">
+  ${text.split('\n').map(p => `<p>${esc(p)}</p>`).join('')}
+  </body></html>`;
+  
+  const blob = new Blob([htmlDoc], { type: 'application/msword' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${current.filename.replace(/\.[^.]+$/, '')}_all_pages_corrected.doc`;
+  a.click();
+}
+
+function downloadFullTextAsPdf() {
+  if (!current) return;
+  const text = $('extracted-full-text-area').value;
+  
+  const printWin = window.open('', '_blank');
+  if (!printWin) {
+    toast('Failed to open PDF generation window. Please allow popups.');
+    return;
+  }
+  
+  printWin.document.write(`
+    <html>
+    <head>
+      <title>${current.filename} - Corrected Transcription</title>
+      <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari&display=swap" rel="stylesheet">
+      <style>
+        body {
+          font-family: 'Noto Sans Devanagari', sans-serif;
+          font-size: 14pt;
+          line-height: 1.8;
+          padding: 40px;
+          color: #261B13;
+          background: #fff;
+        }
+        h2 {
+          font-size: 18pt;
+          border-bottom: 2px solid #6E4E8C;
+          padding-bottom: 8px;
+          color: #6E4E8C;
+        }
+        p {
+          margin-bottom: 12px;
+          white-space: pre-wrap;
+        }
+      </style>
+    </head>
+    <body>
+      <h2>Mataṅga Bhāratam / EyM Sanskrit OCR Output</h2>
+      <div style="font-size: 10pt; color: #777; margin-bottom: 20px;">
+        Source Document: ${current.filename} | Date: ${new Date().toLocaleDateString()}
+      </div>
+      ${text.split('\n').map(p => `<p>${p}</p>`).join('')}
+      <script>
+        window.onload = function() {
+          window.print();
+          window.close();
+        };
+      </script>
+    </body>
+    </html>
+  `);
+  printWin.document.close();
+}
+
 function renderAll() {
   renderHierarchyView();
   renderBboxOverlay();
@@ -2713,6 +2854,7 @@ function renderAll() {
   renderMatrix();
   updateGlobalReplace();
   updateAnalytics();
+  updateFullTextDisplay();
 }
 
 /* ─── IndexedDB Storage ────────────────────────────────────────────────────── */
@@ -2772,35 +2914,122 @@ async function changePdfPage(delta) {
   if (!activePdfDoc || busy) return;
   const newPage = activePdfPageNum + delta;
   if (newPage < 1 || newPage > totalPdfPages) return;
+  
+  // Save current page state
+  if (current && current.pages) {
+    current.pages[activePdfPageNum - 1].blocks = current.blocks;
+    current.pages[activePdfPageNum - 1].words = current.words;
+  }
+  
   activePdfPageNum = newPage;
   updatePdfNavUI();
-  await processPdfPage(activePdfPageNum);
+  
+  // Load page from cache
+  if (current && current.pages && current.pages[newPage - 1]) {
+    const p = current.pages[newPage - 1];
+    current.blocks = p.blocks;
+    current.words = p.words;
+    current.imageW = p.imageW;
+    current.imageH = p.imageH;
+    currentImageURL = p.imageURL;
+    
+    const img = $('source-img');
+    img.src = currentImageURL;
+    
+    // Set estimated medium and quality of the active page
+    if (p.data && p.data.medium) {
+      updateMediumBadge(p.data.medium);
+    }
+    
+    renderAll();
+  }
 }
 
-async function processPdfPage(pageNum) {
+async function processAllPdfPages() {
   if (!activePdfDoc) return;
   try {
     busy = true;
-    setProgress(0.2);
-    setStatus(`Rendering PDF page ${pageNum} of ${totalPdfPages}…`);
-    const page = await activePdfDoc.getPage(pageNum);
+    const pages = [];
+    const useServer = (preferredEngine === 'parinamika') || (preferredEngine === 'auto' && serverOnline);
     
-    // Scale 2.0 ensures 150-200 DPI crispness for Devanagari OCR
-    const viewport = page.getViewport({ scale: 2.0 });
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-
-    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-    const url = URL.createObjectURL(blob);
-
-    await processImageSource(url, blob);
+    for (let pageNum = 1; pageNum <= totalPdfPages; pageNum++) {
+      setProgress((pageNum / (totalPdfPages + 1)) * 0.9);
+      setStatus(`Rendering & OCR processing PDF page ${pageNum} of ${totalPdfPages}…`);
+      
+      const page = await activePdfDoc.getPage(pageNum);
+      // Scale 2.0 ensures 150-200 DPI crispness for Devanagari OCR
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+      
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      const url = URL.createObjectURL(blob);
+      
+      let data;
+      if (useServer) {
+        data = await ocrViaServer(blob);
+      } else {
+        const w = await ensureTesseractWorker();
+        const imgEl = new Image();
+        imgEl.src = url;
+        await new Promise((res, rej) => { imgEl.onload = res; imgEl.onerror = rej; });
+        const r = await w.recognize(imgEl);
+        data = r.data;
+      }
+      
+      const imgW = viewport.width;
+      const imgH = viewport.height;
+      const parsed = parseOcrResponse(data, imgW, imgH);
+      
+      pages.push({
+        pageNum,
+        data,
+        imageURL: url,
+        imageW: imgW,
+        imageH: imgH,
+        blocks: parsed.blocks,
+        words: parsed.flatWords
+      });
+    }
+    
+    // Create multi-page session
+    const flatWords = pages.flatMap(p => p.words);
+    current = {
+      id: uid(),
+      filename: currentFile ? currentFile.name : 'document.pdf',
+      lang: $('lang-sel').value,
+      script: SCRIPT,
+      ts: new Date().toISOString(),
+      status: 'in_progress',
+      pages,
+      blocks: pages[0].blocks,
+      words: pages[0].words,
+      imageW: pages[0].imageW,
+      imageH: pages[0].imageH
+    };
+    
+    currentImageURL = pages[0].imageURL;
+    const img = $('source-img');
+    img.src = currentImageURL;
+    img.style.display = 'block';
+    
+    // Set estimated medium and quality based on the first page
+    if (pages[0].data && pages[0].data.medium) {
+      updateMediumBadge(pages[0].data.medium);
+    }
+    
+    upsertSession();
+    renderAll();
+    persistSoon();
+    
+    setProgress(1.0);
+    setStatus(`Multipage OCR Complete: ${totalPdfPages} page(s), ${flatWords.length} word(s) identified. Click any word to edit.`);
   } catch (err) {
     console.error(err);
-    setStatus(`Page ${pageNum} render failed: ${err.message}`);
+    setStatus(`Multipage PDF Processing Failed: ${err.message}`);
   } finally {
     busy = false;
   }
@@ -2868,7 +3097,7 @@ async function handleFile(file) {
       if (pdfNav) pdfNav.style.display = 'flex';
       updatePdfNavUI();
 
-      await processPdfPage(activePdfPageNum);
+      await processAllPdfPages();
     } catch (err) {
       console.error(err);
       setStatus(`PDF Load Failed: ${err.message}`);
@@ -2951,6 +3180,17 @@ $('tb-export-docx').onclick = exportDocx;
 $('tb-export-matrix').onclick = exportMatrix;
 $('tb-import-matrix').onclick = () => $('import-matrix-file').click();
 $('import-matrix-file').onchange = e => { if (e.target.files[0]) importMatrix(e.target.files[0]); };
+
+$('full-text-export-txt').onclick = downloadFullTextAsTxt;
+$('full-text-export-docx').onclick = downloadFullTextAsDocx;
+$('full-text-export-pdf').onclick = downloadFullTextAsPdf;
+
+$('extracted-full-text-area').addEventListener('input', e => {
+  if (current) {
+    current.manuallyEditedText = e.target.value;
+    persistSoon();
+  }
+});
 
 /* ─── UI Listeners & Mode Toggles ──────────────────────────────────────────── */
 $('view-mode-tokens').onclick = () => {
