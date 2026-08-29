@@ -509,8 +509,10 @@ body.light-mode #sidebar-tabs {
   background: var(--terra-glow) !important;
   box-shadow: 0 0 14px var(--terra-glow);
 }
-.word-tok.conf-low { background: rgba(226, 114, 91, .25); border-color: rgba(226, 114, 91, .4); }
-.word-tok.conf-med { background: rgba(212, 160, 71, .18); border-color: rgba(212, 160, 71, .3); }
+.word-tok.conf-certain { border-color: rgba(91, 174, 133, 0.3); }
+.word-tok.conf-probable { background: rgba(91, 174, 133, 0.08); border-color: rgba(91, 174, 133, 0.25); }
+.word-tok.conf-uncertain { background: rgba(212, 160, 71, 0.18); border-color: rgba(212, 160, 71, 0.35); }
+.word-tok.conf-mandatory { background: rgba(226, 114, 91, 0.25); border-color: rgba(226, 114, 91, 0.45); border-style: dashed; }
 .word-tok.corrected { background: var(--jade-glow); border-color: var(--jade-dim); color: #fff; }
 .word-tok.reviewed { border-bottom: 2px dotted var(--text-sub); }
 .word-tok.unk-word {
@@ -757,6 +759,7 @@ body.light-mode #sidebar-tabs {
   <img src="rasa100-english.png" alt="RASA 100" style="height:34px;width:auto;border-radius:6px;flex-shrink:0"
     onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/rasa100-english.png';this.onerror=null" />
   <div id="header-right">
+    <span class="badge gold" id="medium-badge" title="Manuscript Writing Medium & Quality">📜 Paper (Ink)</span>
     <span class="badge" id="server-badge" title="Parinamika model server status">⚙ Checking server…</span>
     <span class="badge lav" id="dict-badge" title="Monier-Williams dictionary">📖 loading…</span>
     <button class="mini-btn" id="dark-toggle" title="Toggle light/dark mode">☀ Light</button>
@@ -779,6 +782,7 @@ body.light-mode #sidebar-tabs {
   <div id="toolbar-right">
     <div class="mode-toggle">
       <button class="mode-opt active" id="view-mode-tokens" title="Click words to correct">Tokens</button>
+      <button class="mode-opt" id="view-mode-diplomatic" title="View original scribal forms vs normalised Unicode NFC">Diplomatic</button>
       <button class="mode-opt" id="view-mode-editor" title="Free text editor mode">Editor</button>
     </div>
     <select id="lang-sel" title="OCR language" style="background:var(--bg-card2);color:var(--text-sub);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:11px">
@@ -1032,11 +1036,17 @@ body.light-mode #sidebar-tabs {
 
     <!-- Option 1: Edit Entire Word -->
     <div id="modal-pane-word" class="modal-pane active">
+      <div id="htr-disagreement-alert" style="display:none;margin-bottom:8px;padding:6px 10px;background:var(--terra-glow);border:1px solid var(--terra-dim);border-radius:6px;color:var(--terra);font-size:11px">
+        ⚠️ <strong>HTR Disagreement Detected:</strong> Visual HTR output differs from Sanskrit headwords lexicon top candidate.
+      </div>
       <div class="modal-section-title">✏ Replace Whole Word</div>
       <div class="modal-input-row">
         <input type="text" id="m-word-input" autocomplete="off" />
         <button class="btn btn-terra" id="m-word-apply-btn">Apply Word</button>
       </div>
+
+      <div class="modal-section-title" id="m-htr-nbest-title" style="display:none">🏆 Devanagari HTR N-Best Candidates (Visual + Sanskrit LM)</div>
+      <div class="sugg-grid" id="m-htr-nbest-grid" style="display:none;margin-bottom:10px"></div>
 
       <div class="modal-section-title">💡 Smart Word Suggestions (Dictionary &amp; Confusion Matrix)</div>
       <div class="sugg-grid" id="m-sugg-grid"></div>
@@ -1109,6 +1119,10 @@ body.light-mode #sidebar-tabs {
 /* ─── Global State & Configuration ─────────────────────────────────────────── */
 const SCRIPT = 'Devanagari';
 const LOW = 0.50, MED = 0.75;
+const CERTAIN_THRESH = 0.97;
+const PROBABLE_THRESH = 0.85;
+const UNCERTAIN_THRESH = 0.60;
+let currentMediumClass = 'paper_ink';
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const OCR_SERVER = 'http://127.0.0.1:5001';
 
@@ -1317,8 +1331,129 @@ function buildSessionFromOCR(data, imgObj, imgW, imgH) {
   const blocks = [];
   const W = currentImageW, H = currentImageH;
 
-  // Check if structured hOCR / blocks are available from Tesseract.js
-  if (data.blocks && data.blocks.length) {
+  // Set estimated medium and quality in the UI
+  if (data.medium) {
+    currentMediumClass = data.medium.medium_class || 'paper_ink';
+    const degradation = data.medium.degradation_score ?? 0.0;
+    const quality = Math.round((1.0 - degradation) * 100);
+    
+    const mediumMapping = {
+      'paper_ink': '📜 Paper (Ink)',
+      'degraded_paper': '📜 Degraded Paper',
+      'palm_leaf_incised': '🌴 Palm Leaf (Incised)',
+      'palm_leaf_ink': '🌴 Palm Leaf (Ink)',
+      'stone_inscription': '🪨 Stone Inscription'
+    };
+    
+    const mediumLabel = mediumMapping[currentMediumClass] || '📜 Paper (Ink)';
+    const badge = $('medium-badge');
+    if (badge) {
+      badge.textContent = `${mediumLabel} [Q: ${quality}%]`;
+      badge.className = 'badge';
+      if (currentMediumClass.startsWith('palm_leaf')) {
+        badge.classList.add('gold');
+      } else if (currentMediumClass === 'degraded_paper') {
+        badge.classList.add('terra');
+      } else if (currentMediumClass === 'stone_inscription') {
+        badge.classList.add('lav');
+      } else {
+        badge.classList.add('jade');
+      }
+    }
+  } else {
+    currentMediumClass = 'paper_ink';
+    const badge = $('medium-badge');
+    if (badge) {
+      badge.textContent = '📜 Paper (Ink)';
+      badge.className = 'badge gold';
+    }
+  }
+
+  // Check if server-side structured lines are available
+  if (data.lines && data.lines.length) {
+    const mainBlock = {
+      id: uid(),
+      blockNum: 1,
+      bbox: { x0: 0, y0: 0, x1: W, y1: H },
+      isMarginal: false,
+      type: 'main_text',
+      lines: []
+    };
+
+    data.lines.forEach((l, idx) => {
+      const lBbox = l.bbox ? {
+        x0: Math.round(l.bbox.xmin * W),
+        y0: Math.round(l.bbox.ymin * H),
+        x1: Math.round(l.bbox.xmax * W),
+        y1: Math.round(l.bbox.ymax * H)
+      } : {
+        x0: 0,
+        y0: Math.round((idx / data.lines.length) * H),
+        x1: W,
+        y1: Math.round(((idx + 1) / data.lines.length) * H)
+      };
+
+      const lineObj = {
+        id: uid(),
+        lineNum: idx + 1,
+        bbox: lBbox,
+        words: []
+      };
+
+      const lineWords = (l.text || '').split(/\s+/).filter(Boolean);
+      lineWords.forEach((w, wi) => {
+        const wordW = (lBbox.x1 - lBbox.x0) / lineWords.length;
+        const wBbox = {
+          x0: Math.round(lBbox.x0 + wi * wordW),
+          y0: lBbox.y0,
+          x1: Math.round(lBbox.x0 + (wi + 1) * wordW),
+          y1: lBbox.y1
+        };
+
+        const wordCandidates = [];
+        if (l.nbest_candidates && l.nbest_candidates.length) {
+          l.nbest_candidates.forEach((cand) => {
+            const candWords = (cand.text || '').split(/\s+/).filter(Boolean);
+            if (candWords[wi]) {
+              wordCandidates.push({
+                word: candWords[wi],
+                score: cand.final_score,
+                is_lexical: cand.is_lexical,
+                source: cand.source
+              });
+            }
+          });
+        }
+
+        const seenWords = new Set();
+        const uniqueWordCandidates = [];
+        wordCandidates.forEach(c => {
+          if (!seenWords.has(c.word)) {
+            seenWords.add(c.word);
+            uniqueWordCandidates.push(c);
+          }
+        });
+
+        const confidence = l.confidence !== null ? clamp(l.confidence, 0, 1) : 0.85;
+
+        lineObj.words.push({
+          id: uid(),
+          text: w,
+          corrected: null,
+          confidence: confidence,
+          bbox: wBbox,
+          reviewed: false,
+          aksharas: segmentAksharas(w).map(a => ({ text: a, corrected: null })),
+          nbest_candidates: uniqueWordCandidates,
+          disagreement: l.visual_language_disagreement && (uniqueWordCandidates.length > 1 && uniqueWordCandidates[0].word !== w)
+        });
+      });
+
+      if (lineObj.words.length) mainBlock.lines.push(lineObj);
+    });
+
+    if (mainBlock.lines.length) blocks.push(mainBlock);
+  } else if (data.blocks && data.blocks.length) {
     data.blocks.forEach((blk, bi) => {
       const bBbox = blk.bbox || { x0: 0, y0: 0, x1: W, y1: H };
       const isMarginal = isBlockMarginal(bBbox, W, H);
@@ -1815,8 +1950,18 @@ function renderHierarchyView() {
         const inD = isInDict(displayTxt);
         const tok = document.createElement('span');
 
-        let confClass = w.confidence < LOW ? ' conf-low' : (w.confidence < MED ? ' conf-med' : '');
-        if (w.corrected) confClass = ' corrected';
+        let confClass = '';
+        if (w.corrected) {
+          confClass = ' corrected';
+        } else if (w.confidence >= CERTAIN_THRESH) {
+          confClass = ' conf-certain';
+        } else if (w.confidence >= PROBABLE_THRESH) {
+          confClass = ' conf-probable';
+        } else if (w.confidence >= UNCERTAIN_THRESH) {
+          confClass = ' conf-uncertain';
+        } else {
+          confClass = ' conf-mandatory';
+        }
 
         tok.className = `word-tok${confClass}${inD === false && dictReady ? ' unk-word' : ''}${w.reviewed ? ' reviewed' : ''}`;
         tok.dataset.wid = w.id;
@@ -1962,6 +2107,35 @@ function openWordModal(w) {
     suggContainer.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Type the correct Sanskrit word above.</span>';
   }
 
+  // Toggle disagreement alert and populate HTR N-best candidates
+  const diagAlert = $('htr-disagreement-alert');
+  if (diagAlert) {
+    diagAlert.style.display = w.disagreement ? 'block' : 'none';
+  }
+
+  const nbestGrid = $('m-htr-nbest-grid');
+  const nbestTitle = $('m-htr-nbest-title');
+  if (nbestGrid) {
+    nbestGrid.innerHTML = '';
+    if (w.nbest_candidates && w.nbest_candidates.length) {
+      if (nbestTitle) nbestTitle.style.display = 'block';
+      nbestGrid.style.display = 'grid';
+      w.nbest_candidates.forEach(cand => {
+        const btn = document.createElement('button');
+        btn.className = 'sugg-btn';
+        btn.innerHTML = `<span>${esc(cand.word)}</span> <span class="sugg-meta">${cand.is_lexical ? '📖 ' : ''}Score: ${cand.score}</span>`;
+        btn.onclick = () => {
+          applyWordCorrection(cand.word);
+          closeModal();
+        };
+        nbestGrid.appendChild(btn);
+      });
+    } else {
+      if (nbestTitle) nbestTitle.style.display = 'none';
+      nbestGrid.style.display = 'none';
+    }
+  }
+
   // Setup Option 2 (Specific Letters)
   renderAksharaSelector();
 
@@ -2082,6 +2256,20 @@ function applyWordCorrection(newText) {
   // Record in confusion matrix
   recordCorrectionInMatrix(activeWord.text, trimmed);
 
+  // Send feedback to local SQLite HTR database
+  if (serverOnline) {
+    fetch(`${OCR_SERVER}/manuscript/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        original_text: activeWord.text,
+        accepted_text: trimmed,
+        medium: currentMediumClass || 'paper_ink',
+        reason: 'scholarly_correction'
+      })
+    }).catch(e => console.warn('Feedback log error:', e));
+  }
+
   activeWord.corrected = trimmed;
   activeWord.reviewed = true;
   activeWord.aksharas = segmentAksharas(trimmed).map(a => ({ text: a, corrected: a }));
@@ -2090,7 +2278,7 @@ function applyWordCorrection(newText) {
   renderHierarchyView();
   renderBboxOverlay();
   persistSoon();
-  toast(`Updated: "${oldTxt}" → "${trimmed}"`);
+  toast(`Updated: "${oldTxt}" → "${trimmed}" (Logged to HTR store ✓)`);
 }
 
 function applyAcceptWord() {
@@ -2903,6 +3091,23 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeModal();
 });
 
+async function loadManuscriptConfusions() {
+  if (!serverOnline) return;
+  try {
+    const r = await fetch(`${OCR_SERVER}/manuscript/confusions`);
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.confusions && data.confusions.length) {
+      data.confusions.forEach(c => {
+        if (c.from && c.to) recordCorrectionInMatrix(c.from, c.to, false);
+      });
+      renderMatrix();
+    }
+  } catch (e) {
+    console.warn('Could not load manuscript confusions:', e);
+  }
+}
+
 /* ─── Boot Initialization ─────────────────────────────────────────────────── */
 (async function init() {
   try {
@@ -2913,7 +3118,8 @@ document.addEventListener('keydown', e => {
   renderMatrix();
   updateAnalytics();
   updateGlobalReplace();
-  checkServer();
+  await checkServer();
+  await loadManuscriptConfusions();
   ensureDictionary();
   setInterval(checkServer, 30000);
 })();

@@ -90,6 +90,8 @@ except ImportError:
 # ── Tesseract fallback ────────────────────────────────────────────────────────
 try:
     import pytesseract
+    if os.path.exists(r"C:\Program Files\Tesseract-OCR\tesseract.exe"):
+        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
     pytesseract.get_tesseract_version()
     TESSERACT_AVAILABLE = True
     log.info("Tesseract system install found")
@@ -281,6 +283,223 @@ def segment_lines_opencv(image_bytes: bytes) -> list:
     return results
 
 
+import sqlite3
+import unicodedata
+import hashlib
+
+# ── SQLite Database Setup ──────────────────────────────────────────────────────
+DB_PATH = Path(__file__).parent / "eym_manuscript_htr.db"
+
+def init_db():
+    """Initialize SQLite tables for manuscript profiles, confusions, and audit history."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS manuscripts (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                script TEXT DEFAULT 'Devanagari',
+                medium TEXT DEFAULT 'paper_ink',
+                period TEXT DEFAULT 'unknown',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scribal_confusions (
+                from_char TEXT,
+                to_char TEXT,
+                weight REAL DEFAULT 1.0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (from_char, to_char)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS corrections_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                manuscript_id TEXT,
+                word_original TEXT,
+                word_corrected TEXT,
+                medium TEXT,
+                reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS active_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_hash TEXT,
+                original_text TEXT,
+                accepted_text TEXT,
+                confidence REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Seed default Devanagari scribal confusions if empty
+        cursor.execute("SELECT COUNT(*) FROM scribal_confusions")
+        if cursor.fetchone()[0] == 0:
+            default_confusions = [
+                ("व", "ब", 0.85), ("श", "ष", 0.78), ("ि", "ी", 0.65),
+                ("ं", "ँ", 0.60), ("न", "ण", 0.70), ("ध", "घ", 0.72),
+                ("ख", "रव", 0.80), ("त्त", "त्र", 0.68)
+            ]
+            cursor.executemany("INSERT INTO scribal_confusions (from_char, to_char, weight) VALUES (?, ?, ?)", default_confusions)
+        conn.commit()
+        conn.close()
+        log.info("SQLite HTR Database initialized at %s ✓", DB_PATH)
+    except Exception as e:
+        log.error("Failed to initialize SQLite database: %s", e)
+
+# Run DB init
+init_db()
+
+# ── Load Sanskrit Lexicon for Language Model Ranking ─────────────────────────
+HEADWORDS_PATH = Path(__file__).parent / "sanskrit-headwords.json"
+SANSKRIT_LEXICON = set()
+if HEADWORDS_PATH.exists():
+    try:
+        with open(HEADWORDS_PATH, "r", encoding="utf-8") as f:
+            hw_data = json.load(f)
+            if isinstance(hw_data, list):
+                SANSKRIT_LEXICON = set(hw_data)
+            elif isinstance(hw_data, dict):
+                SANSKRIT_LEXICON = set(hw_data.keys())
+        log.info("Loaded Sanskrit Lexicon with %d headwords ✓", len(SANSKRIT_LEXICON))
+    except Exception as lex_err:
+        log.warning("Could not parse Sanskrit headwords lexicon: %s", lex_err)
+
+
+# ── Document Medium & Degradation Analysis ───────────────────────────────────
+
+def analyze_medium_and_degradation(image_bytes: bytes) -> dict:
+    """
+    Analyze manuscript image to classify writing medium and degradation level.
+    Supported classes: paper_ink, palm_leaf_incised, palm_leaf_ink, stone_inscription, degraded_paper
+    """
+    if not CV2_AVAILABLE:
+        return {
+            "medium_class": "paper_ink",
+            "confidence": 0.80,
+            "degradation_score": 0.15,
+            "details": {"reason": "CV2 unavailable — using default paper profile"}
+        }
+
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        return {"medium_class": "paper_ink", "confidence": 0.75, "degradation_score": 0.20}
+
+    h, w, _ = img.shape
+    aspect_ratio = float(w) / float(h)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    mean_val = float(np.mean(gray))
+    std_val = float(np.std(gray))
+
+    # Calculate color variance (palm leaf / aged paper has high warm yellow/brown channel bias)
+    b, g, r = cv2.split(img)
+    rg_diff = float(np.mean(np.abs(r.astype(float) - g.astype(float))))
+    rb_diff = float(np.mean(np.abs(r.astype(float) - b.astype(float))))
+
+    # Edge analysis for incised lines vs ink strokes
+    edges = cv2.Canny(gray, 50, 150)
+    edge_density = float(np.mean(edges > 0))
+
+    medium_class = "paper_ink"
+    confidence = 0.88
+    degradation_score = min(1.0, max(0.0, (128.0 - std_val) / 128.0))
+
+    # Classification Heuristics:
+    if aspect_ratio > 3.2 and mean_val < 160 and rb_diff > 25:
+        medium_class = "palm_leaf_incised"
+        confidence = 0.92
+    elif aspect_ratio > 2.8 and (rb_diff > 20 or rg_diff > 10):
+        medium_class = "palm_leaf_ink"
+        confidence = 0.90
+    elif std_val < 32 and mean_val < 140:
+        medium_class = "stone_inscription"
+        confidence = 0.86
+    elif mean_val < 150 or std_val > 65:
+        medium_class = "degraded_paper"
+        confidence = 0.87
+        degradation_score = min(1.0, degradation_score + 0.35)
+
+    return {
+        "medium_class": medium_class,
+        "confidence": round(confidence, 2),
+        "degradation_score": round(degradation_score, 2),
+        "details": {
+            "aspect_ratio": round(aspect_ratio, 2),
+            "mean_luminance": round(mean_val, 1),
+            "contrast_std": round(std_val, 1),
+            "color_bias_rb": round(rb_diff, 1),
+            "edge_density": round(edge_density, 3)
+        }
+    }
+
+
+# ── N-Best HTR Decoding & Sanskrit Re-ranking ────────────────────────────────
+
+def generate_nbest_candidates(text: str, visual_conf: float = 0.85) -> list:
+    """
+    Generate N-best candidate readings using Sanskrit lexicon & scribal confusion matrix.
+    Returns list of dicts: [{text, visual_conf, language_conf, final_score, is_lexical}]
+    """
+    if not text or not text.strip():
+        return []
+
+    # NFC Normalisation
+    norm_text = unicodedata.normalize("NFC", text.strip())
+    candidates = []
+    
+    # Candidate 1: Direct Visual Recognition
+    is_in_lexicon = norm_text in SANSKRIT_LEXICON
+    lang_conf = 0.95 if is_in_lexicon else 0.40
+    vis_conf = visual_conf if visual_conf is not None else 0.80
+    final_score = round(0.6 * vis_conf + 0.4 * lang_conf, 3)
+
+    candidates.append({
+        "text": norm_text,
+        "diplomatic_text": text,
+        "visual_confidence": round(vis_conf, 2),
+        "language_confidence": round(lang_conf, 2),
+        "final_score": final_score,
+        "is_lexical": is_in_lexicon,
+        "source": "visual_htr"
+    })
+
+    # Generate lookalike candidates from confusion matrix
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT from_char, to_char, weight FROM scribal_confusions")
+        confusions = cursor.fetchall()
+        conn.close()
+
+        for from_c, to_c, weight in confusions:
+            if from_c in norm_text:
+                variant = norm_text.replace(from_c, to_c)
+                if variant != norm_text:
+                    var_in_lex = variant in SANSKRIT_LEXICON
+                    var_lang_conf = 0.96 if var_in_lex else 0.35
+                    var_vis_conf = max(0.20, vis_conf - (1.0 - weight) * 0.3)
+                    var_final = round(0.55 * var_vis_conf + 0.45 * var_lang_conf, 3)
+                    candidates.append({
+                        "text": variant,
+                        "diplomatic_text": variant,
+                        "visual_confidence": round(var_vis_conf, 2),
+                        "language_confidence": round(var_lang_conf, 2),
+                        "final_score": var_final,
+                        "is_lexical": var_in_lex,
+                        "source": f"confusion_{from_c}->{to_c}"
+                    })
+    except Exception as c_err:
+        log.warning("Error looking up scribal confusions: %s", c_err)
+
+    # Sort candidates by final_score descending
+    candidates.sort(key=lambda c: c["final_score"], reverse=True)
+    return candidates[:5]
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # API Endpoints
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -295,6 +514,8 @@ def health():
         "cv2": CV2_AVAILABLE,
         "tesseract": TESSERACT_AVAILABLE,
         "fitz": FITZ_AVAILABLE,
+        "db_ready": DB_PATH.exists(),
+        "lexicon_words": len(SANSKRIT_LEXICON)
     })
 
 
@@ -337,6 +558,23 @@ def _get_image_bytes(req) -> bytes:
     return raw
 
 
+@app.route("/analyze_document", methods=["POST"])
+def analyze_document():
+    """Analyze manuscript image for writing medium, degradation, and line count."""
+    try:
+        image_bytes = _get_image_bytes(request)
+        medium_info = analyze_medium_and_degradation(image_bytes)
+        lines = segment_lines_opencv(image_bytes)
+        return jsonify({
+            **medium_info,
+            "line_count": len(lines),
+            "status": "success"
+        })
+    except Exception as e:
+        log.error("Document analysis error: %s", traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/segment", methods=["POST"])
 def segment():
     """
@@ -356,10 +594,8 @@ def segment():
 @app.route("/ocr", methods=["POST"])
 def ocr():
     """
-    Run OCR on an image (line or page).
-    Accepts: multipart/form-data 'image', or JSON 'image_b64'.
-    Optional: 'lang' (default: 'san'), 'mode' ('line'|'page', default 'page')
-    Returns: {"text":..., "lines":[...], "engine":..., "confidence":...}
+    Run HTR/OCR on an image (line or page).
+    Returns: {"text":..., "lines":[...], "medium":..., "engine":..., "confidence":...}
     """
     try:
         image_bytes = _get_image_bytes(request)
@@ -368,8 +604,10 @@ def ocr():
         mode = (request.form.get("mode") or
                 (request.json or {}).get("mode", "page"))
 
+        # Analyze writing medium
+        medium_analysis = analyze_medium_and_degradation(image_bytes)
+
         if mode == "page":
-            # Segment into lines first, then run OCR on each
             lines = segment_lines_opencv(image_bytes)
             if not lines:
                 lines = [{"image_b64": base64.b64encode(image_bytes).decode(), "bbox": None}]
@@ -384,39 +622,126 @@ def ocr():
                         pred = predict_tesseract(lb, lang)
                 except Exception as line_err:
                     pred = {"text": "", "confidence": None, "error": str(line_err)}
-                full_text_parts.append(pred["text"])
-                line_results.append({**pred, "bbox": line_info["bbox"]})
+                
+                raw_text = pred.get("text", "")
+                nbest = generate_nbest_candidates(raw_text, pred.get("confidence"))
+                top_reading = nbest[0]["text"] if nbest else unicodedata.normalize("NFC", raw_text)
+                
+                disagreement = (
+                    len(nbest) > 1 and 
+                    nbest[0]["text"] != raw_text and 
+                    nbest[0]["is_lexical"]
+                )
+
+                full_text_parts.append(top_reading)
+                line_results.append({
+                    **pred,
+                    "text": top_reading,
+                    "diplomatic_text": raw_text,
+                    "normalised_text": top_reading,
+                    "nbest_candidates": nbest,
+                    "visual_language_disagreement": disagreement,
+                    "bbox": line_info["bbox"]
+                })
+            
             return jsonify({
                 "text": "\n".join(full_text_parts),
                 "lines": line_results,
+                "medium": medium_analysis,
                 "engine": ENGINE,
             })
         else:
-            # Single line mode
             if _model_ready:
                 pred = predict_parinamika(image_bytes)
             else:
                 pred = predict_tesseract(image_bytes, lang)
-            return jsonify({**pred, "engine": ENGINE, "lines": []})
+            
+            raw_text = pred.get("text", "")
+            nbest = generate_nbest_candidates(raw_text, pred.get("confidence"))
+            top_reading = nbest[0]["text"] if nbest else unicodedata.normalize("NFC", raw_text)
+
+            return jsonify({
+                **pred,
+                "text": top_reading,
+                "diplomatic_text": raw_text,
+                "normalised_text": top_reading,
+                "nbest_candidates": nbest,
+                "medium": medium_analysis,
+                "engine": ENGINE,
+                "lines": []
+            })
 
     except Exception as e:
         log.error("OCR error: %s", traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 
-def _get_image_bytes(req) -> bytes:
-    """Extract raw image bytes from either multipart or JSON request."""
-    if "image" in req.files:
-        return req.files["image"].read()
-    if req.is_json:
-        data = req.json or {}
-        b64 = data.get("image_b64") or data.get("image")
-        if b64:
-            # Strip data URI prefix if present
-            if "," in b64:
-                b64 = b64.split(",", 1)[1]
-            return base64.b64decode(b64)
-    raise ValueError("No image provided. Send 'image' as file upload or 'image_b64' in JSON.")
+@app.route("/manuscript/feedback", methods=["POST"])
+def manuscript_feedback():
+    """
+    Log scholar correction feedback to SQLite and update scribal confusions.
+    Accepts JSON: {original_text, accepted_text, medium, reason}
+    """
+    try:
+        data = request.json or {}
+        orig = data.get("original_text", "").strip()
+        accepted = data.get("accepted_text", "").strip()
+        medium = data.get("medium", "paper_ink")
+        reason = data.get("reason", "scholarly_correction")
+
+        if not orig or not accepted:
+            return jsonify({"error": "original_text and accepted_text required"}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Log audit entry
+        cursor.execute(
+            "INSERT INTO corrections_audit (manuscript_id, word_original, word_corrected, medium, reason) VALUES (?, ?, ?, ?, ?)",
+            ("EYM-MSS-LOCAL", orig, accepted, medium, reason)
+        )
+
+        # Update scribal confusion matrix if single-char mismatch
+        if len(orig) == len(accepted) == 1 and orig != accepted:
+            cursor.execute("""
+                INSERT INTO scribal_confusions (from_char, to_char, weight)
+                VALUES (?, ?, 1.0)
+                ON CONFLICT(from_char, to_char) DO UPDATE SET
+                weight = weight + 0.5,
+                updated_at = CURRENT_TIMESTAMP
+            """, (orig, accepted))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "status": "success",
+            "message": "Feedback saved to manuscript SQLite store ✓",
+            "original": orig,
+            "accepted": accepted
+        })
+    except Exception as e:
+        log.error("Feedback endpoint error: %s", traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/manuscript/confusions", methods=["GET"])
+def get_confusions():
+    """Return active scribal confusion matrix from SQLite database."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT from_char, to_char, weight, updated_at FROM scribal_confusions ORDER BY weight DESC")
+        rows = cursor.fetchall()
+        conn.close()
+
+        confusions = [
+            {"from": r[0], "to": r[1], "weight": round(r[2], 2), "updated_at": r[3]}
+            for r in rows
+        ]
+        return jsonify({"confusions": confusions, "count": len(confusions)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -424,8 +749,9 @@ def _get_image_bytes(req) -> bytes:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    log.info("EyM OCR Server starting up …")
+    log.info("EyM OCR & Devanagari HTR Server starting up …")
     try_load_parinamika()
     if not _model_ready:
         log.info("Running in Tesseract fallback mode (Parinamika model not loaded)")
     app.run(host="127.0.0.1", port=5001, debug=False, threaded=False)
+

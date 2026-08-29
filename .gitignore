@@ -1,0 +1,12 @@
+__pycache__/
+*.db
+*.log
+eym bg.png
+eym-bg.jpg
+eym-bg.png
+eym-bg.webp
+logo-EyM.png
+rasa100-english.png
+/venv/
+/env/
+.freebuff/
