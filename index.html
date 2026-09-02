@@ -1196,93 +1196,6 @@ let dictHeadwords = null;
 let dictArray = null;
 let dictReady = false, dictLoading = false;
 
-// ── Bigram context model (ported from the Browser Edition build) ──
-// Word co-occurrence frequencies, used to rerank ambiguous OCR corrections
-// by how plausible a candidate is next to its actual neighbours, not just
-// by edit distance.
-const BIGRAMS_LOCAL = 'sanskrit-bigrams.json';
-let bigramModel = null;
-let bigramReady = false, bigramLoading = false;
-
-async function ensureBigrams() {
-  if (bigramReady || bigramLoading) return;
-  bigramLoading = true;
-  try {
-    const r = await fetch(BIGRAMS_LOCAL);
-    if (r.ok) {
-      bigramModel = await r.json();
-      bigramReady = true;
-      console.log('Bigram model loaded:', Object.keys(bigramModel).length, 'entries');
-    }
-  } catch (e) {
-    console.warn('Bigram model unavailable (optional):', e);
-  } finally {
-    bigramLoading = false;
-  }
-}
-
-/** Frequency score for a word appearing next to a given neighbour.
- * Checked both directions since the table is unordered by convention. */
-function bigramScore(wordA, wordB) {
-  if (!bigramReady || !bigramModel || !wordA || !wordB) return 0;
-  const k1 = wordA + '\x00' + wordB;
-  const k2 = wordB + '\x00' + wordA;
-  return (bigramModel[k1] || 0) + (bigramModel[k2] || 0);
-}
-
-/** Find a word's left/right neighbours within its own line, so corrections
- * can be scored against actual sentence context rather than in isolation. */
-function getWordContext(w) {
-  if (!current || !current.blocks) return { prevWord: null, nextWord: null };
-  for (const blk of current.blocks) {
-    for (const line of blk.lines) {
-      const idx = line.words.findIndex(x => x.id === w.id);
-      if (idx !== -1) {
-        const prevWord = idx > 0 ? (line.words[idx - 1].corrected || line.words[idx - 1].text) : null;
-        const nextWord = idx < line.words.length - 1 ? (line.words[idx + 1].corrected || line.words[idx + 1].text) : null;
-        return { prevWord, nextWord };
-      }
-    }
-  }
-  return { prevWord: null, nextWord: null };
-}
-
-// ── Monier-Williams definition lookup (ported from the Browser Edition build) ──
-// isInDict() only tells us whether a headword exists; this fetches the actual
-// gloss text so the correction modal can show real definitions, not just a
-// found/not-found flag. The full MW JSON is fetched once from GitHub raw and
-// cached in memory; per-word lookups afterward are free.
-const DICT_MW_RAW = 'https://raw.githubusercontent.com/sanskrit-lexicon/csl-json/main/ashtadhyayi.com/mw.json';
-let mwFullData = null;
-let mwFullLoading = null;
-const mwDefCache = new Map();
-
-async function fetchMWDefinition(word) {
-  const clean = word.replace(/[।॥,\.\?!;:"'0-9]/g, '').trim();
-  if (mwDefCache.has(clean)) return mwDefCache.get(clean);
-  try {
-    if (!mwFullData) {
-      if (!mwFullLoading) {
-        mwFullLoading = fetch(DICT_MW_RAW).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-      }
-      mwFullData = await mwFullLoading;
-    }
-    const entryIds = mwFullData.data.words[clean];
-    if (!entryIds) { mwDefCache.set(clean, null); return null; }
-    const firstId = String(entryIds.split(',')[0]);
-    const entry = mwFullData.data.text[firstId];
-    if (!entry || !entry[0]) { mwDefCache.set(clean, null); return null; }
-    const def = entry[0].replace(/<[^>]+>/g, '').trim();
-    const result = { headword: clean, def };
-    mwDefCache.set(clean, result);
-    return result;
-  } catch (e) {
-    console.warn('MW definition fetch failed for', clean, e);
-    mwDefCache.set(clean, null);
-    return null;
-  }
-}
-
 async function ensureDictionary() {
   if (dictReady || dictLoading) return;
   dictLoading = true;
@@ -1297,7 +1210,6 @@ async function ensureDictionary() {
       $('dict-badge').className = 'badge lav';
       $('dict-badge').textContent = `📖 ${dictHeadwords.size.toLocaleString()} words`;
       ensureChandas();
-      ensureBigrams();
     } else {
       throw new Error('Local dictionary missing');
     }
@@ -1366,9 +1278,7 @@ function levenshtein(a, b) {
 }
 
 // 🚀 FIX: Prevent Levenshtein search loop from blocking the UI thread
-// prevWord/nextWord (optional) let bigram context break ties between
-// otherwise-equal-distance dictionary candidates.
-function suggestWordCandidates(rawWord, maxCount = 6, prevWord = null, nextWord = null) {
+function suggestWordCandidates(rawWord, maxCount = 6) {
   const clean = rawWord.replace(/[।॥,\.\?!;:"'0-9]/g, '').trim();
   const results = [];
   const seen = new Set();
@@ -1394,26 +1304,15 @@ function suggestWordCandidates(rawWord, maxCount = 6, prevWord = null, nextWord 
       comps++;
       const d = levenshtein(clean, hw);
       if (d > 0 && d <= 2) {
-        let ctx = 0;
-        if (bigramReady) {
-          if (prevWord) ctx += bigramScore(prevWord, hw);
-          if (nextWord) ctx += bigramScore(hw, nextWord);
-        }
-        candidates.push({ word: hw, dist: d, ctx });
-        if (candidates.length >= 30) break;
+        candidates.push({ word: hw, dist: d });
+        if (candidates.length >= 15) break; 
       }
       if (comps > 4000) break; // Hard cutoff to prevent freezing
     }
-    // Primary sort by edit distance, but a strong context match can win a tie
-    // (or nearly a tie) against a purely-closer-in-spelling candidate.
-    candidates.sort((a, b) => (a.dist - a.ctx * 0.3) - (b.dist - b.ctx * 0.3) || a.dist - b.dist);
+    candidates.sort((a, b) => a.dist - b.dist);
     candidates.slice(0, 4).forEach(c => {
       if (!seen.has(c.word)) {
-        results.push({
-          word: c.word,
-          score: 50 - c.dist * 10 + c.ctx,
-          label: c.ctx > 0 ? 'dict match · context' : 'dict match'
-        });
+        results.push({ word: c.word, score: 50 - c.dist * 10, label: 'dict match' });
         seen.add(c.word);
       }
     });
@@ -2540,8 +2439,7 @@ function openWordModal(w) {
 
   const suggContainer = $('m-sugg-grid');
   suggContainer.innerHTML = '';
-  const { prevWord, nextWord } = getWordContext(w);
-  const suggestions = suggestWordCandidates(w.text, 8, prevWord, nextWord);
+  const suggestions = suggestWordCandidates(w.text, 8);
 
   if (suggestions.length) {
     suggestions.forEach(s => {
@@ -2580,34 +2478,13 @@ function openWordModal(w) {
 
   renderAksharaSelector();
 
-  showDictLookup(currentTxt);
+  $('m-dict-hw').textContent = currentTxt;
+  $('m-dict-def').textContent = isInDict(currentTxt)
+    ? '✓ Verified headword in Monier-Williams Sanskrit Dictionary.'
+    : 'Word not found in dictionary headwords (may be a compound or inflected form).';
 
   switchModalMode('word');
   $('overlay').classList.remove('hidden');
-}
-
-/** Populate the dictionary lookup panel: show the in/out-of-dictionary state
- * immediately, then fetch and fill in the real Monier-Williams gloss text
- * once it's available (a request token guards against the modal moving on
- * to another word before the fetch resolves). */
-let _dictLookupToken = 0;
-function showDictLookup(word) {
-  const hwEl = $('m-dict-hw');
-  const defEl = $('m-dict-def');
-  const inDict = isInDict(word);
-  hwEl.textContent = word;
-  defEl.textContent = inDict
-    ? 'Verified headword — looking up definition…'
-    : 'Word not found in dictionary headwords (may be a compound or inflected form).';
-
-  if (!inDict) return;
-  const token = ++_dictLookupToken;
-  fetchMWDefinition(word).then(result => {
-    if (token !== _dictLookupToken) return; // modal moved on to a different word
-    defEl.textContent = result && result.def
-      ? result.def
-      : '✓ Verified headword in Monier-Williams Sanskrit Dictionary (no gloss text found).';
-  });
 }
 
 function renderAksharaSelector() {
@@ -2693,7 +2570,10 @@ function updateSelectedLetter(newChar) {
 function updateLetterLivePreview() {
   const recon = getModalCurrentReconstructedText();
   $('m-letter-live-preview').textContent = recon || '(empty)';
-  if (recon) showDictLookup(recon);
+  $('m-dict-hw').textContent = recon;
+  $('m-dict-def').textContent = isInDict(recon)
+    ? '✓ Verified headword in Monier-Williams Sanskrit Dictionary.'
+    : 'Word not found in dictionary headwords.';
 }
 
 function applyAllLetterCorrections() {
