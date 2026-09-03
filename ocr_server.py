@@ -1,14 +1,41 @@
 """
-EyM Sanskrit OCR — Parinamika Model Server
-=========================================
-Flask backend for the Sanskrit-OCR-main (Parinamika) seq2seq OCR model.
+EyM Sanskrit OCR — Model Server
+===============================
+Flask backend for EyM's OCR/HTR pipeline. Tries engines in this priority
+order, falling back automatically if a given engine isn't available:
+
+  1. Neural HTR ("qwen-vl" or "trocr-devanagari") — real Devanagari/Sanskrit
+     handwriting models, far more accurate than the two below on cursive
+     manuscript hands. See NEURAL ENGINE section below to configure.
+  2. Parinamika — the legacy TF1.15 seq2seq model this server originally
+     shipped with (kept for backward compatibility; most installs won't
+     have this).
+  3. Tesseract — last-resort fallback via system pytesseract.
 
 Endpoints:
-  GET  /health        → {"status":"ok","engine":"parinamika"|"tesseract"}
+  GET  /health        → {"status":"ok","engine":"qwen-vl"|"trocr-devanagari"|"parinamika"|"tesseract", ...}
   POST /ocr           → {"text":..., "lines":[...], "engine":...}
   POST /segment       → {"lines":[{bbox, image_b64},...]}
 
-Model: Download from https://drive.google.com/file/d/1KJ6vORY-Ybi_ldvdj2cDGAYsnRG4wdCR/view
+NEURAL ENGINE (new):
+  Set the EYM_NEURAL_ENGINE environment variable to choose a backend:
+    EYM_NEURAL_ENGINE=qwen    → Sanskrit-fine-tuned Qwen2.5-VL-7B (best accuracy,
+                                 needs a GPU with ~16GB VRAM, or EYM_QWEN_4BIT=1
+                                 for a quantized ~6-8GB footprint)
+    EYM_NEURAL_ENGINE=trocr   → TrOCR fine-tuned on handwritten Devanagari words
+                                 (much lighter; runs on CPU, just slower)
+    EYM_NEURAL_ENGINE=auto    → try qwen, fall back to trocr, fall back to
+                                 Parinamika/Tesseract (default)
+    EYM_NEURAL_ENGINE=none    → skip neural models entirely (old behaviour)
+  Model checkpoints are downloaded from Hugging Face on first run and cached
+  locally (~/.cache/huggingface) — no manual download step needed, unlike
+  the Parinamika model below.
+
+  EYM_QWEN_MODEL_ID   (default: diabolic6045/Sanskrit-Qwen2.5-VL-7B-Instruct-OCR)
+  EYM_TROCR_MODEL_ID  (default: paudelanil/trocr-devanagari-2)
+
+Legacy Parinamika model: Download from
+  https://drive.google.com/file/d/1KJ6vORY-Ybi_ldvdj2cDGAYsnRG4wdCR/view
 Place extracted files in: modelss/ (next to this script)
 
 Requirements: pip install -r requirements_ocr.txt
@@ -61,6 +88,31 @@ try:
 except Exception as e:
     TF_AVAILABLE = False
     log.warning("TensorFlow not available: %s", e)
+
+# ── Neural HTR engine (Qwen2.5-VL Sanskrit fine-tune / TrOCR-Devanagari) ──────
+# These are optional — the server still runs Parinamika/Tesseract-only if
+# torch/transformers aren't installed. See requirements_ocr.txt.
+try:
+    import torch
+    from transformers import AutoProcessor, AutoModelForImageTextToText
+    from transformers import VisionEncoderDecoderModel, TrOCRProcessor
+    TORCH_AVAILABLE = True
+    log.info("torch/transformers import OK (cuda available: %s)", torch.cuda.is_available())
+except Exception as e:
+    TORCH_AVAILABLE = False
+    log.warning("torch/transformers not available — neural HTR engine disabled: %s", e)
+
+NEURAL_ENGINE_PREF = os.environ.get("EYM_NEURAL_ENGINE", "auto").lower()  # auto | qwen | trocr | none
+QWEN_MODEL_ID = os.environ.get("EYM_QWEN_MODEL_ID", "diabolic6045/Sanskrit-Qwen2.5-VL-7B-Instruct-OCR")
+TROCR_MODEL_ID = os.environ.get("EYM_TROCR_MODEL_ID", "paudelanil/trocr-devanagari-2")
+QWEN_4BIT = os.environ.get("EYM_QWEN_4BIT", "0") == "1"
+
+_neural_ready = False
+_neural_error = None
+_qwen_model = None
+_qwen_processor = None
+_trocr_model = None
+_trocr_processor = None
 
 # ── OpenCV / PIL (always required) ────────────────────────────────────────────
 try:
@@ -155,6 +207,81 @@ def try_load_parinamika():
         log.error("Failed to load Parinamika model: %s", e)
 
 
+def try_load_qwen_vl():
+    """Load the Sanskrit-fine-tuned Qwen2.5-VL model (best accuracy, needs GPU)."""
+    global _qwen_model, _qwen_processor, _neural_ready, _neural_error, ENGINE
+    if not TORCH_AVAILABLE:
+        _neural_error = "torch/transformers not installed"
+        return False
+    try:
+        log.info("Loading Qwen2.5-VL Sanskrit OCR model (%s) — this downloads "
+                  "the checkpoint from Hugging Face on first run …", QWEN_MODEL_ID)
+        load_kwargs = {"trust_remote_code": True}
+        if torch.cuda.is_available():
+            load_kwargs["torch_dtype"] = torch.float16
+            load_kwargs["device_map"] = "auto"
+            if QWEN_4BIT:
+                from transformers import BitsAndBytesConfig
+                load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
+        else:
+            log.warning("No CUDA GPU detected — Qwen2.5-VL will run on CPU and be slow. "
+                        "Consider EYM_NEURAL_ENGINE=trocr for CPU use instead.")
+        _qwen_processor = AutoProcessor.from_pretrained(QWEN_MODEL_ID, trust_remote_code=True)
+        _qwen_model = AutoModelForImageTextToText.from_pretrained(QWEN_MODEL_ID, **load_kwargs)
+        if not torch.cuda.is_available():
+            _qwen_model = _qwen_model.to("cpu")
+        _qwen_model.eval()
+        _neural_ready = True
+        ENGINE = "qwen-vl"
+        log.info("Qwen2.5-VL Sanskrit OCR model loaded successfully ✓")
+        return True
+    except Exception as e:
+        _neural_error = str(e)
+        log.error("Failed to load Qwen2.5-VL model: %s", e)
+        return False
+
+
+def try_load_trocr():
+    """Load the TrOCR-Devanagari handwriting model (lighter, CPU-friendly)."""
+    global _trocr_model, _trocr_processor, _neural_ready, _neural_error, ENGINE
+    if not TORCH_AVAILABLE:
+        _neural_error = "torch/transformers not installed"
+        return False
+    try:
+        log.info("Loading TrOCR-Devanagari model (%s) — this downloads the "
+                  "checkpoint from Hugging Face on first run …", TROCR_MODEL_ID)
+        _trocr_processor = TrOCRProcessor.from_pretrained(TROCR_MODEL_ID)
+        _trocr_model = VisionEncoderDecoderModel.from_pretrained(TROCR_MODEL_ID)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _trocr_model = _trocr_model.to(device)
+        _trocr_model.eval()
+        _neural_ready = True
+        ENGINE = "trocr-devanagari"
+        log.info("TrOCR-Devanagari model loaded successfully ✓ (device: %s)", device)
+        return True
+    except Exception as e:
+        _neural_error = str(e)
+        log.error("Failed to load TrOCR-Devanagari model: %s", e)
+        return False
+
+
+def try_load_neural_engine():
+    """Load a neural HTR engine per EYM_NEURAL_ENGINE. Tries qwen -> trocr in
+    'auto' mode; a specific choice ('qwen' or 'trocr') is not cross-tried."""
+    if NEURAL_ENGINE_PREF == "none":
+        log.info("EYM_NEURAL_ENGINE=none — skipping neural HTR engine")
+        return False
+    if NEURAL_ENGINE_PREF == "qwen":
+        return try_load_qwen_vl()
+    if NEURAL_ENGINE_PREF == "trocr":
+        return try_load_trocr()
+    # auto: prefer the stronger model, fall back to the lighter one
+    if try_load_qwen_vl():
+        return True
+    log.info("Qwen2.5-VL unavailable, trying TrOCR-Devanagari instead …")
+    return try_load_trocr()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Prediction helpers
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -208,11 +335,73 @@ def predict_parinamika(image_bytes: bytes) -> dict:
 def predict_tesseract(image_bytes: bytes, lang: str = "san") -> dict:
     """Fallback: run system Tesseract on image bytes."""
     if not TESSERACT_AVAILABLE:
-        raise RuntimeError("Neither Parinamika nor system Tesseract is available")
+        raise RuntimeError("Neither a neural engine nor system Tesseract is available")
     pil_img = PILImage.open(io.BytesIO(image_bytes))
     data = pytesseract.image_to_data(pil_img, lang=lang, output_type=pytesseract.Output.DICT)
     text = " ".join(w for w in data["text"] if w.strip())
     return {"text": text, "confidence": None}
+
+
+QWEN_PROMPT = (
+    "Transcribe the Sanskrit/Devanagari text visible in this image exactly as "
+    "written, including any handwriting. Output only the transcribed Devanagari "
+    "text with no commentary, translation, or extra formatting."
+)
+
+
+def predict_qwen_vl(image_bytes: bytes) -> dict:
+    """Run the Sanskrit-fine-tuned Qwen2.5-VL model on a line/page image."""
+    if not _neural_ready or _qwen_model is None or ENGINE != "qwen-vl":
+        raise RuntimeError("Qwen2.5-VL model not loaded")
+    pil_img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "image", "image": pil_img},
+            {"type": "text", "text": QWEN_PROMPT},
+        ],
+    }]
+    prompt_text = _qwen_processor.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    inputs = _qwen_processor(text=[prompt_text], images=[pil_img], return_tensors="pt")
+    inputs = {k: v.to(_qwen_model.device) for k, v in inputs.items()}
+    with torch.no_grad():
+        generated = _qwen_model.generate(**inputs, max_new_tokens=256, do_sample=False)
+    # Only decode the newly generated tokens, not the echoed prompt.
+    input_len = inputs["input_ids"].shape[1]
+    output_ids = generated[:, input_len:]
+    text = _qwen_processor.batch_decode(
+        output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
+    )[0].strip()
+    return {"text": text, "confidence": None}
+
+
+def predict_trocr(image_bytes: bytes) -> dict:
+    """Run the TrOCR-Devanagari model on a line/word-crop image.
+
+    TrOCR is a word/short-line recognizer, not a document-level model — it
+    performs best on a single line or word crop, which is exactly the
+    granularity the /ocr endpoint's page-mode segmentation already produces.
+    """
+    if not _neural_ready or _trocr_model is None or ENGINE != "trocr-devanagari":
+        raise RuntimeError("TrOCR-Devanagari model not loaded")
+    pil_img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+    pixel_values = _trocr_processor(images=pil_img, return_tensors="pt").pixel_values
+    pixel_values = pixel_values.to(_trocr_model.device)
+    with torch.no_grad():
+        generated_ids = _trocr_model.generate(pixel_values, max_new_tokens=64)
+    text = _trocr_processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+    return {"text": text, "confidence": None}
+
+
+def predict_neural(image_bytes: bytes) -> dict:
+    """Dispatch to whichever neural engine is currently loaded."""
+    if ENGINE == "qwen-vl":
+        return predict_qwen_vl(image_bytes)
+    if ENGINE == "trocr-devanagari":
+        return predict_trocr(image_bytes)
+    raise RuntimeError("No neural engine is loaded")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -509,8 +698,15 @@ def health():
     return jsonify({
         "status": "ok",
         "engine": ENGINE,
-        "model_ready": _model_ready,
-        "model_error": _model_error,
+        # "model_ready" here reflects whichever engine is actually active,
+        # so the front-end's existing check (data.engine + data.model_ready)
+        # keeps working unmodified whether that's neural, Parinamika, or none.
+        "model_ready": _neural_ready or _model_ready,
+        "model_error": _neural_error if not _neural_ready else _model_error,
+        "neural_ready": _neural_ready,
+        "neural_error": _neural_error,
+        "neural_engine_pref": NEURAL_ENGINE_PREF,
+        "torch_available": TORCH_AVAILABLE,
         "cv2": CV2_AVAILABLE,
         "tesseract": TESSERACT_AVAILABLE,
         "fitz": FITZ_AVAILABLE,
@@ -616,7 +812,9 @@ def ocr():
             for line_info in lines:
                 lb = base64.b64decode(line_info["image_b64"])
                 try:
-                    if _model_ready:
+                    if _neural_ready:
+                        pred = predict_neural(lb)
+                    elif _model_ready:
                         pred = predict_parinamika(lb)
                     else:
                         pred = predict_tesseract(lb, lang)
@@ -651,7 +849,9 @@ def ocr():
                 "engine": ENGINE,
             })
         else:
-            if _model_ready:
+            if _neural_ready:
+                pred = predict_neural(image_bytes)
+            elif _model_ready:
                 pred = predict_parinamika(image_bytes)
             else:
                 pred = predict_tesseract(image_bytes, lang)
@@ -750,8 +950,10 @@ def get_confusions():
 
 if __name__ == "__main__":
     log.info("EyM OCR & Devanagari HTR Server starting up …")
-    try_load_parinamika()
-    if not _model_ready:
-        log.info("Running in Tesseract fallback mode (Parinamika model not loaded)")
+    if not try_load_neural_engine():
+        log.info("No neural engine loaded (%s) — trying legacy Parinamika model …", _neural_error)
+        try_load_parinamika()
+    if not (_neural_ready or _model_ready):
+        log.info("Running in Tesseract fallback mode (no neural or Parinamika model loaded)")
     app.run(host="127.0.0.1", port=5001, debug=False, threaded=False)
 
