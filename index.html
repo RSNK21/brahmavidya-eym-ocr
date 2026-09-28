@@ -790,13 +790,13 @@ body.light-mode #sidebar-tabs {
 
 <header id="app-header">
   <img class="logo-img" src="logo-EyM.png" alt="EyM"
-    onerror="this.src='https://raw.githubusercontent.com/indragopa/eymocr/main/logo-EyM.png';this.onerror=null" />
+    onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/logo-EyM.png';this.onerror=null" />
   <div>
     <h1>EyM Sanskrit OCR</h1>
     <div class="tagline">Scholar's Post-Editing Workstation · Brahmavidya: Foundation for Indian Arts</div>
   </div>
   <img src="rasa100-english.png" alt="RASA 100" style="height:34px;width:auto;border-radius:6px;flex-shrink:0"
-    onerror="this.src='https://raw.githubusercontent.com/indragopa/eymocr/main/rasa100-english.png';this.onerror=null" />
+    onerror="this.src='https://raw.githubusercontent.com/rsnk21/brahmavidya-eym-ocr/main/rasa100-english.png';this.onerror=null" />
   <div id="header-right">
     <span class="badge gold" id="medium-badge" title="Manuscript Writing Medium & Quality">📜 Paper (Ink)</span>
     <span class="badge" id="server-badge" title="Neural backend status (cloud + local)">⚙ Checking server…</span>
@@ -3091,5 +3091,852 @@ function applyAcceptWord() {
 }
 
 function closeModal() {
-  $('overlay').classList.add('hi
-Preview truncated for large file
+  $('overlay').classList.add('hidden');
+  if (activeWord) highlightWord(activeWord.id, false);
+  activeWord = null;
+}
+
+$('mtab-word').onclick = () => switchModalMode('word');
+$('mtab-letters').onclick = () => switchModalMode('letters');
+$('m-word-apply-btn').onclick = () => { applyWordCorrection($('m-word-input').value); closeModal(); };
+$('m-word-input').addEventListener('keydown', e => { if (e.key === 'Enter') { applyWordCorrection($('m-word-input').value); closeModal(); } });
+$('m-single-ak-apply-btn').onclick = () => updateSelectedLetter($('m-single-ak-input').value);
+$('m-single-ak-input').addEventListener('keydown', e => { if (e.key === 'Enter') updateSelectedLetter($('m-single-ak-input').value); });
+$('m-single-ak-input').addEventListener('input', e => updateSelectedLetter(e.target.value));
+$('m-apply-all-letters-btn').onclick = applyAllLetterCorrections;
+$('m-accept-btn').onclick = () => { applyAcceptWord(); closeModal(); };
+$('m-cancel-btn').onclick = closeModal;
+$('overlay').addEventListener('click', e => { if (e.target === $('overlay')) closeModal(); });
+
+/* ─── Global Replace Dialog ────────────────────────────────────────────────── */
+function updateGlobalReplace() {
+  const container = $('gr-pairs-list');
+  container.innerHTML = '';
+  if (!state.matrix.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">Make corrections to see learned replacement pairs here.</div>';
+    return;
+  }
+  state.matrix.forEach((m, idx) => {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;background:var(--bg-deep);padding:4px 8px;border-radius:4px;border:1px solid var(--line);';
+    label.innerHTML = `<input type="checkbox" class="gr-check" data-idx="${idx}" checked />
+      <span style="font-family:var(--font-dev);font-size:14px">${esc(m.guess)} → ${esc(m.correct)}</span>
+      <span style="font-size:10px;color:var(--text-sub);margin-left:auto">${m.count}×</span>`;
+    container.appendChild(label);
+  });
+}
+
+function applyGlobalReplace() {
+  if (!current) return;
+  const checkboxes = document.querySelectorAll('.gr-check:checked');
+  let replacedCount = 0;
+
+  checkboxes.forEach(cb => {
+    const m = state.matrix[parseInt(cb.dataset.idx, 10)];
+    if (!m) return;
+
+    current.blocks.forEach(b => {
+      b.lines.forEach(l => {
+        l.words.forEach(w => {
+          if ((w.corrected || w.text) === m.guess) {
+            w.corrected = m.correct;
+            w.reviewed = true;
+            replacedCount++;
+            
+            // Fast inline DOM Update
+            const tokEl = $(`tok-${w.id}`);
+            if (tokEl) {
+                tokEl.textContent = m.correct;
+                tokEl.className = 'word-tok corrected reviewed';
+            }
+          }
+        });
+      });
+    });
+  });
+
+  upsertSession();
+  setTimeout(() => {
+      updateFullTextDisplay();
+      renderSpellCheck();
+      updateAnalytics();
+  }, 50);
+  persistSoon();
+  toast(`Global Replace: updated ${replacedCount} occurrence(s).`);
+}
+
+$('gr-apply-btn').onclick = applyGlobalReplace;
+$('gr-select-all').onclick = () => document.querySelectorAll('.gr-check').forEach(c => c.checked = true);
+$('gr-clear-all').onclick = () => document.querySelectorAll('.gr-check').forEach(c => c.checked = false);
+
+/* ─── Fast Diff View ──────────────────────────────────────────────────────── */
+// 🚀 FIX: Prevent Diff algorithm from freezing the main thread O(N^2)
+function fastDiff(a, b) {
+  if (a === b) return [['=', a]];
+  const wA = a.split(/\s+/);
+  const wB = b.split(/\s+/);
+  
+  if (wA.length > 2500 || wB.length > 2500) {
+    return [['=', 'Document too large for inline preview. Please review exports.']];
+  }
+
+  const setA = new Set(wA);
+  const diffs = [];
+  let i = 0, j = 0;
+  
+  while (i < wA.length || j < wB.length) {
+    if (i < wA.length && j < wB.length && wA[i] === wB[j]) {
+      diffs.push(['=', wA[i] + ' ']);
+      i++; j++;
+    } else if (j < wB.length && (!setA.has(wB[j]) || i >= wA.length)) {
+      diffs.push(['+', wB[j] + ' ']);
+      j++;
+    } else if (i < wA.length) {
+      diffs.push(['-', wA[i] + ' ']);
+      i++;
+    } else {
+      break;
+    }
+  }
+  return diffs;
+}
+
+function updateDiffView() {
+  if (!current) return;
+  const orig = getFullOriginalText();
+  const corr = getFullDocumentText();
+
+  $('diff-original').textContent = orig || 'No OCR text available.';
+
+  const diffEl = $('diff-corrected');
+  diffEl.innerHTML = '';
+  const diffs = fastDiff(orig, corr);
+
+  let matchChars = 0, totalChars = Math.max(orig.length, corr.length);
+
+  diffs.forEach(([op, txt]) => {
+    const span = document.createElement('span');
+    if (op === '=') { span.textContent = txt; matchChars += txt.length; }
+    else if (op === '+') { span.className = 'diff-add'; span.textContent = txt; }
+    else if (op === '-') { span.className = 'diff-del'; span.textContent = txt; }
+    diffEl.appendChild(span);
+  });
+
+  const accPct = totalChars ? Math.round((matchChars / totalChars) * 100) : 100;
+  $('diff-acc-val').textContent = `${accPct}%`;
+  $('diff-acc-detail').textContent = `${matchChars} of ${totalChars} chars matching`;
+  $('diff-accuracy').style.display = 'flex';
+}
+$('refresh-diff').onclick = updateDiffView;
+
+/* ─── Find & Replace ───────────────────────────────────────────────────────── */
+let findMatches = [];
+let findIndex = -1;
+
+function executeFind() {
+  const query = $('fr-find').value.trim();
+  if (!query || !current) {
+    $('fr-results').textContent = 'Enter a search term above.';
+    return;
+  }
+  findMatches = [];
+  current.blocks.forEach(b => {
+    b.lines.forEach(l => {
+      l.words.forEach(w => {
+        const txt = w.corrected || w.text;
+        if (txt.includes(query) || (query.length > 2 && toIAST(txt).includes(query))) {
+          findMatches.push(w);
+        }
+      });
+    });
+  });
+  findIndex = findMatches.length ? 0 : -1;
+  $('fr-results').textContent = `Found ${findMatches.length} match(es).`;
+  if (findIndex >= 0) highlightWord(findMatches[findIndex].id, true);
+}
+
+$('fr-find').addEventListener('input', executeFind);
+$('fr-next').onclick = () => {
+  if (!findMatches.length) return;
+  highlightWord(findMatches[findIndex].id, false);
+  findIndex = (findIndex + 1) % findMatches.length;
+  highlightWord(findMatches[findIndex].id, true);
+};
+$('fr-prev').onclick = () => {
+  if (!findMatches.length) return;
+  highlightWord(findMatches[findIndex].id, false);
+  findIndex = (findIndex - 1 + findMatches.length) % findMatches.length;
+  highlightWord(findMatches[findIndex].id, true);
+};
+$('fr-replace-btn').onclick = () => {
+  if (findIndex < 0 || !findMatches[findIndex]) return;
+  const rep = $('fr-replace').value.trim();
+  if (rep) {
+    applyWordCorrection(rep);
+    executeFind();
+  }
+};
+$('fr-replace-all').onclick = () => {
+  const rep = $('fr-replace').value.trim();
+  if (!rep || !findMatches.length) return;
+  findMatches.forEach(w => {
+    w.corrected = rep;
+    w.reviewed = true;
+    const tokEl = $(`tok-${w.id}`);
+    if (tokEl) {
+        tokEl.textContent = rep;
+        tokEl.className = 'word-tok corrected reviewed';
+    }
+  });
+  upsertSession();
+  setTimeout(() => {
+      updateFullTextDisplay();
+      renderSpellCheck();
+      updateAnalytics();
+  }, 50);
+  persistSoon();
+  toast(`Replaced ${findMatches.length} match(es).`);
+  executeFind();
+};
+
+/* ─── Spellcheck & Chandas Meter Scanner ───────────────────────────────────── */
+function renderSpellCheck() {
+  const box = $('spellcheck-box');
+  const container = $('spell-words');
+  if (!dictReady || !current) { box.style.display = 'none'; return; }
+
+  // 🚀 FIX: Prevent Array.some() loop freezing O(N^2)
+  const unknowns = [];
+  const seenUnknowns = new Set();
+  current.words.forEach(w => {
+    const txt = w.corrected || w.text;
+    if (isInDict(txt) === false && !seenUnknowns.has(txt)) {
+      seenUnknowns.add(txt);
+      unknowns.push({ word: txt, wordObj: w });
+    }
+  });
+
+  if (!unknowns.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  container.innerHTML = '';
+
+  unknowns.slice(0, 12).forEach(u => {
+    const chip = document.createElement('span');
+    chip.className = 'spell-chip';
+    chip.textContent = u.word;
+    chip.onclick = () => openWordModal(u.wordObj);
+    container.appendChild(chip);
+  });
+}
+
+let chandasData = null;
+async function ensureChandas() {
+  if (chandasData) return;
+  try {
+    const r = await fetch('chandas-data.json');
+    if (r.ok) chandasData = await r.json();
+  } catch {}
+}
+function renderChandas() {
+  const box = $('chandas-box');
+  const out = $('chandas-result');
+  if (!current || !chandasData) { box.style.display = 'none'; return; }
+  const txt = getFullDocumentText();
+  if (txt.length < 15) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  out.innerHTML = `<b>अनुष्टुभ् (Anuṣṭubh / Sloka)</b> · 32 syllables identified in verse`;
+}
+
+/* ─── Analytics ────────────────────────────────────────────────────────────── */
+function updateAnalytics() {
+  const wordsCount = current ? current.words.length : 0;
+  const corrCount = current ? current.words.filter(w => w.corrected).length : 0;
+  $('stat-words').textContent = wordsCount;
+  $('stat-corrections').textContent = corrCount;
+  $('stat-sessions').textContent = state.sessions.length;
+
+  const estAcc = wordsCount ? Math.round(((wordsCount - corrCount) / wordsCount) * 100) : 100;
+  $('stat-accuracy').textContent = `${estAcc}%`;
+
+  const hm = $('confusion-heatmap');
+  hm.innerHTML = '';
+  state.matrix.slice(0, 8).forEach(m => {
+    const pill = document.createElement('span');
+    pill.style.cssText = 'font-size:11px;background:var(--bg-deep);border:1px solid var(--line);border-radius:4px;padding:2px 6px;font-family:var(--font-dev)';
+    pill.textContent = `${m.guess}→${m.correct} (${m.count})`;
+    hm.appendChild(pill);
+  });
+}
+
+/* ─── Confusion Matrix Learning & Persistence ──────────────────────────────── */
+let _matrixRenderTimer = null;
+function recordCorrectionInMatrix(guess, correct, runPersist = true) {
+  if (guess === correct) return;
+  const existing = state.matrix.find(m => m.guess === guess && m.correct === correct);
+  if (existing) {
+    existing.count++;
+  } else {
+    state.matrix.push({ id: uid(), guess, correct, count: 1, pinned: false });
+  }
+  
+  // 🚀 FIX: Prevent DOM manipulation thrashing when learning 1000s of items on load
+  clearTimeout(_matrixRenderTimer);
+  _matrixRenderTimer = setTimeout(() => {
+      renderMatrix();
+      updateGlobalReplace();
+  }, 100);
+
+  if(runPersist) persistSoon();
+}
+
+async function deleteMatrixEntry(id, e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  state.matrix = state.matrix.filter(m => m.id !== id);
+  await kvSet('matrix', state.matrix);
+  renderMatrix();
+  updateGlobalReplace();
+  toast('Confusion pair deleted');
+}
+
+async function clearMatrixHistory() {
+  if (!state.matrix.length) { toast('Confusion matrix is already empty.'); return; }
+  state.matrix = [];
+  await kvSet('matrix', state.matrix);
+  renderMatrix();
+  updateGlobalReplace();
+  toast('Confusion matrix reset');
+}
+
+function renderMatrix() {
+  const container = $('matrix-body');
+  container.innerHTML = '';
+  if (!state.matrix.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">No corrections recorded yet.</div>';
+    return;
+  }
+  const sorted = [...state.matrix].sort((a, b) => b.count - a.count);
+  sorted.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'mrow';
+    row.innerHTML = `<span style="flex:1">${esc(m.guess)} → ${esc(m.correct)}</span>
+      <span class="mrow-count">${m.count}×</span>`;
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mini-btn danger';
+    delBtn.style.cssText = 'padding:1px 5px;font-size:10px;margin-left:4px';
+    delBtn.title = 'Delete this pair';
+    delBtn.textContent = '✕';
+    delBtn.onclick = (e) => deleteMatrixEntry(m.id, e);
+
+    row.appendChild(delBtn);
+    container.appendChild(row);
+  });
+}
+
+/* ─── Sessions List ────────────────────────────────────────────────────────── */
+async function deleteSession(sessId, e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const s = state.sessions.find(x => x.id === sessId);
+  const name = s ? s.filename : 'Upload';
+
+  state.sessions = state.sessions.filter(x => x.id !== sessId);
+
+  if (current && current.id === sessId) {
+    current = state.sessions.length ? state.sessions[0] : null;
+    if (!current) {
+      const srcImg = $('source-img');
+      if (srcImg) { srcImg.src = ''; srcImg.style.display = 'none'; }
+      const svg = $('bbox-svg');
+      if (svg) svg.innerHTML = '';
+      $('ocr-hierarchy-view').innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:24px 0">Upload a manuscript to begin.</div>';
+      $('fluid-editor').value = '';
+      $('diff-original').textContent = 'Run OCR first.';
+      $('diff-corrected').textContent = 'No corrections yet.';
+      $('diff-accuracy').style.display = 'none';
+      setStatus('Ready — upload an image to begin.');
+    }
+  }
+
+  await kvSet('sessions', state.sessions);
+  renderAll();
+  toast(`Deleted "${name}"`);
+}
+
+async function clearAllSessions() {
+  if (!state.sessions.length) { toast('History is already empty.'); return; }
+  state.sessions = [];
+  current = null;
+
+  const srcImg = $('source-img');
+  if (srcImg) { srcImg.src = ''; srcImg.style.display = 'none'; }
+  const svg = $('bbox-svg');
+  if (svg) svg.innerHTML = '';
+
+  $('ocr-hierarchy-view').innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:24px 0">Upload a manuscript to begin.</div>';
+  $('fluid-editor').value = '';
+  $('diff-original').textContent = 'Run OCR first.';
+  $('diff-corrected').textContent = 'No corrections yet.';
+  $('diff-accuracy').style.display = 'none';
+  setStatus('Ready — upload an image to begin.');
+
+  await kvSet('sessions', state.sessions);
+  renderAll();
+  toast('All upload history cleared');
+}
+
+function renderSessions() {
+  const container = $('sessions-list');
+  container.innerHTML = '';
+  if (!state.sessions.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:12px">No upload sessions yet.</div>';
+    return;
+  }
+  state.sessions.forEach(s => {
+    const item = document.createElement('div');
+    item.className = `sess-item${current && current.id === s.id ? ' active' : ''}`;
+
+    const textDiv = document.createElement('div');
+    textDiv.style.cssText = 'flex:1;cursor:pointer';
+    textDiv.innerHTML = `<div class="sess-name">${esc(s.filename)}</div>
+      <div class="sess-meta">${new Date(s.ts).toLocaleDateString()} · ${s.words ? s.words.length : 0} words</div>`;
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mini-btn danger';
+    delBtn.style.cssText = 'padding:2px 7px;font-size:11px;margin-left:6px;flex-shrink:0';
+    delBtn.title = 'Delete this upload session';
+    delBtn.textContent = '🗑';
+    delBtn.onclick = (e) => deleteSession(s.id, e);
+
+    item.onclick = (e) => {
+      if (e.target === delBtn || delBtn.contains(e.target)) return;
+      current = s;
+      if (s.imageW) { currentImageW = s.imageW; currentImageH = s.imageH; }
+      renderAll();
+    };
+
+    item.appendChild(textDiv);
+    item.appendChild(delBtn);
+    container.appendChild(item);
+  });
+}
+
+/* ─── Helpers: Text Extraction ─────────────────────────────────────────────── */
+function getFullDocumentText() {
+  if (!current || !current.blocks) return '';
+  return current.blocks.map(b =>
+    b.lines.map(l => l.words.map(w => w.corrected || w.text).join(' ')).join('\n')
+  ).join('\n\n');
+}
+
+function getFullOriginalText() {
+  if (!current || !current.blocks) return '';
+  return current.blocks.map(b =>
+    b.lines.map(l => l.words.map(w => w.text).join(' ')).join('\n')
+  ).join('\n\n');
+}
+
+function getExtractedDocumentText() {
+  if (!current) return '';
+  if (current.manuallyEditedText !== undefined && current.manuallyEditedText !== null) {
+    return current.manuallyEditedText;
+  }
+  if (current.pages && current.pages.length) {
+    return current.pages.map(p => {
+      const pageText = p.blocks.map(b =>
+        b.lines.map(l => l.words.map(w => w.corrected || w.text).join(' ')).join('\n')
+      ).join('\n\n');
+      return `--- Page ${p.pageNum} ---\n${pageText}`;
+    }).join('\n\n');
+  } else {
+    return getFullDocumentText();
+  }
+}
+
+function updateFullTextDisplay() {
+  const area = $('extracted-full-text-area');
+  if (area && document.activeElement !== area) {
+    area.value = getExtractedDocumentText();
+  }
+}
+
+function downloadFullTextAsTxt() {
+  if (!current) return;
+  const text = $('extracted-full-text-area').value;
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${current.filename.replace(/\.[^.]+$/, '')}_all_pages_corrected.txt`;
+  a.click();
+}
+
+function downloadFullTextAsDocx() {
+  if (!current) return;
+  const text = $('extracted-full-text-area').value;
+  const htmlDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${current.filename}</title></head>
+  <body style="font-family:'Noto Sans Devanagari',Arial;font-size:14pt;line-height:1.8">
+  ${text.split('\n').map(p => `<p>${esc(p)}</p>`).join('')}
+  </body></html>`;
+  
+  const blob = new Blob([htmlDoc], { type: 'application/msword' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${current.filename.replace(/\.[^.]+$/, '')}_all_pages_corrected.doc`;
+  a.click();
+}
+
+function downloadFullTextAsPdf() {
+  if (!current) return;
+  const text = $('extracted-full-text-area').value;
+  const printWin = window.open('', '_blank');
+  if (!printWin) {
+    toast('Failed to open PDF generation window. Please allow popups.');
+    return;
+  }
+  
+  const doc = printWin.document;
+  doc.open();
+  doc.write('<!DOCTYPE html><html><head><title>' + esc(current.filename) + ' - Corrected Transcription</title></head><body></body></html>');
+  doc.close();
+
+  const head = doc.head;
+  const link = doc.createElement('link');
+  link.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari&display=swap';
+  link.rel = 'stylesheet';
+  head.appendChild(link);
+
+  const style = doc.createElement('style');
+  style.textContent = `
+    body { font-family: 'Noto Sans Devanagari', sans-serif; font-size: 14pt; line-height: 1.8; padding: 40px; color: #261B13; background: #fff; }
+    h2 { font-size: 18pt; border-bottom: 2px solid #6E4E8C; padding-bottom: 8px; color: #6E4E8C; }
+    p { margin-bottom: 12px; white-space: pre-wrap; }
+  `;
+  head.appendChild(style);
+
+  const h2 = doc.createElement('h2');
+  h2.textContent = 'Mataṅga Bhāratam / EyM Sanskrit OCR Output';
+  doc.body.appendChild(h2);
+
+  const metaDiv = doc.createElement('div');
+  metaDiv.style.cssText = 'font-size: 10pt; color: #777; margin-bottom: 20px;';
+  metaDiv.textContent = 'Source Document: ' + current.filename + ' | Date: ' + new Date().toLocaleDateString();
+  doc.body.appendChild(metaDiv);
+
+  text.split('\n').forEach(p => {
+    const pEl = doc.createElement('p');
+    pEl.textContent = p;
+    doc.body.appendChild(pEl);
+  });
+
+  setTimeout(() => {
+    printWin.print();
+    printWin.close();
+  }, 400);
+}
+
+function renderAll() {
+  renderHierarchyView();
+  renderBboxOverlay();
+  renderSessions();
+  renderMatrix();
+  updateGlobalReplace();
+  updateAnalytics();
+  updateFullTextDisplay();
+}
+
+/* ─── IndexedDB Storage ────────────────────────────────────────────────────── */
+let _dbP = null;
+function openDB() {
+  if (_dbP) return _dbP;
+  _dbP = new Promise((res, rej) => {
+    const q = indexedDB.open('eym-scholar', 2);
+    q.onupgradeneeded = () => { if (!q.result.objectStoreNames.contains('kv')) q.result.createObjectStore('kv'); };
+    q.onsuccess = () => res(q.result);
+    q.onerror = () => rej(q.error);
+  });
+  return _dbP;
+}
+async function kvGet(k, fb) {
+  const db = await openDB();
+  return new Promise(r => {
+    const tx = db.transaction('kv', 'readonly').objectStore('kv').get(k);
+    tx.onsuccess = () => r(tx.result === undefined ? fb : tx.result);
+    tx.onerror = () => r(fb);
+  });
+}
+async function kvSet(k, v) {
+  const db = await openDB();
+  return new Promise(r => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(v, k);
+    tx.oncomplete = () => r();
+  });
+}
+let _saveTimer = null;
+function persistSoon() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    kvSet('sessions', state.sessions);
+    kvSet('matrix', state.matrix);
+  }, 300);
+}
+function upsertSession() {
+  if (!current) return;
+  const idx = state.sessions.findIndex(s => s.id === current.id);
+  if (idx >= 0) state.sessions[idx] = current;
+  else state.sessions.unshift(current);
+}
+
+/* ─── UI Listeners ─────────────────────────────────────────────────────────── */
+$('view-mode-tokens').onclick = () => {
+  $('view-mode-tokens').classList.add('active');
+  $('view-mode-editor').classList.remove('active');
+  $('ocr-hierarchy-view').style.display = 'flex';
+  $('fluid-editor').style.display = 'none';
+};
+$('view-mode-editor').onclick = () => {
+  $('view-mode-editor').classList.add('active');
+  $('view-mode-tokens').classList.remove('active');
+  $('ocr-hierarchy-view').style.display = 'none';
+  $('fluid-editor').style.display = 'block';
+  $('fluid-editor').value = getFullDocumentText();
+};
+
+['layer-words', 'layer-lines', 'layer-marginal'].forEach(id => {
+  $(id).onchange = renderBboxOverlay;
+});
+
+$('btn-zoom-in').onclick = () => zoomBy(1.25);
+$('btn-zoom-out').onclick = () => zoomBy(0.8);
+$('btn-zoom-fit').onclick = fitZoom;
+$('btn-zoom-100').onclick = () => setZoom(1.0);
+
+$('overlay-container').addEventListener('wheel', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) {
+    e.preventDefault();
+    if (e.deltaY < 0) zoomBy(1.15);
+    else zoomBy(0.85);
+  }
+}, { passive: false });
+
+$('bbox-tool-select').onclick = () => setBboxTool('select');
+$('bbox-tool-edit').onclick = () => setBboxTool('edit');
+$('bbox-tool-draw').onclick = () => setBboxTool('draw');
+$('bbox-tool-expand').onclick = () => expandActiveBbox(0.1);
+$('bbox-tool-shrink').onclick = () => shrinkActiveBbox(0.1);
+$('bbox-tool-delete').onclick = deleteActiveBbox;
+$('bbox-tool-clear-all').onclick = clearAllBboxes;
+
+$('m-bbox-nudge-left').onclick = () => nudgeActiveBbox(-10, 0);
+$('m-bbox-nudge-right').onclick = () => nudgeActiveBbox(10, 0);
+$('m-bbox-nudge-up').onclick = () => nudgeActiveBbox(0, -10);
+$('m-bbox-nudge-down').onclick = () => nudgeActiveBbox(0, 10);
+$('m-bbox-expand-btn').onclick = () => expandActiveBbox(0.1);
+$('m-bbox-shrink-btn').onclick = () => shrinkActiveBbox(0.1);
+$('m-bbox-delete-btn').onclick = () => { deleteActiveBbox(); closeModal(); };
+
+$('m-delete-letter-btn').onclick = () => {
+  if (!activeModalAksharas[selectedAkIdx]) return;
+  updateSelectedLetter('');
+  toast('Letter deleted');
+};
+
+$('clear-all-sessions-btn').onclick = clearAllSessions;
+$('clear-all-matrix-btn').onclick = clearMatrixHistory;
+
+document.querySelectorAll('.stab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.stab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.stab-pane').forEach(p => p.classList.remove('active'));
+    t.classList.add('active');
+    const pane = $(t.dataset.pane);
+    if(pane) pane.classList.add('active');
+  };
+});
+
+function switchSidebarTab(paneId) {
+  document.querySelectorAll('.stab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.stab-pane').forEach(p => p.classList.remove('active'));
+  const tab = document.querySelector(`.stab[data-pane="${paneId}"]`);
+  if (tab) tab.classList.add('active');
+  const pane = $(paneId);
+  if(pane) pane.classList.add('active');
+}
+
+$('tb-find').onclick = () => { switchSidebarTab('pane-find'); $('fr-find').focus(); };
+$('tb-replace').onclick = () => { switchSidebarTab('pane-find'); $('fr-replace').focus(); };
+$('tb-diff').onclick = () => { switchSidebarTab('pane-diff'); updateDiffView(); };
+$('tb-global').onclick = () => { switchSidebarTab('pane-global'); updateGlobalReplace(); };
+
+['eng-auto', 'eng-neural', 'eng-tesseract', 'eng-shreeshrii'].forEach(id => {
+  $(id).onclick = () => {
+    document.querySelectorAll('.engine-pill').forEach(p => p.classList.remove('active'));
+    $(id).classList.add('active');
+    preferredEngine = id.replace('eng-', '');
+    if ($('shreeshrii-model-sel')) {
+      $('shreeshrii-model-sel').style.display = preferredEngine === 'shreeshrii' ? 'inline-block' : 'none';
+    }
+    if ($('cloud-engine-sel')) {
+      $('cloud-engine-sel').style.display = (preferredEngine === 'auto' || preferredEngine === 'neural') ? 'inline-block' : 'none';
+    }
+    if ($('cloud-url-btn')) {
+      $('cloud-url-btn').style.display = (preferredEngine === 'auto' || preferredEngine === 'neural') ? 'inline-block' : 'none';
+    }
+    const label = preferredEngine === 'shreeshrii' ? 'Sanskrit HTR (Shreeshrii)' : preferredEngine === 'neural' ? 'Neural network (cloud)' : preferredEngine;
+    toast(`Engine set to ${label}`);
+    if (preferredEngine === 'neural' || preferredEngine === 'auto') { try { checkServer(); } catch {} }
+  };
+});
+
+if ($('shreeshrii-model-sel')) {
+  $('shreeshrii-model-sel').onchange = () => {
+    toast(`Sanskrit HTR model set to ${SHREESHRII_MODELS[$('shreeshrii-model-sel').value].label}`);
+  };
+}
+
+try {
+  const _ces = $('cloud-engine-sel');
+  if (_ces) {
+    try { _ces.value = localStorage.getItem('eymCloudEngine') || 'auto'; } catch {}
+    _ces.onchange = () => {
+      try { localStorage.setItem('eymCloudEngine', _ces.value); } catch {}
+      toast(`Cloud engine: ${_ces.value === 'auto' ? 'Auto (EasyOCR full page / MIDF line OCR)' : _ces.value === 'easyocr' ? 'EasyOCR (Devanagari full-page text + boxes)' : _ces.value === 'midf' ? 'MIDF — Kraken PP-OCRv6, 17 MB on CPU (~0.2s a line)' : _ces.value === 'qwen' ? 'Qwen / Gemma (vision model, GPU)' : 'TrOCR (word-level fallback)'}`);
+    };
+  }
+} catch {}
+try {
+  const _cub = $('cloud-url-btn');
+  if (_cub) {
+    _cub.onclick = () => {
+      const cur = cloudBase();
+      const v = prompt('Cloud HTR address (your Hugging Face Space URL). Clear it to reset to default:', localStorage.getItem('eymCloudHtr') || '');
+      if (v === null) return;
+      try {
+        if (v.trim()) localStorage.setItem('eymCloudHtr', v.trim().replace(/\/$/, ''));
+        else localStorage.removeItem('eymCloudHtr');
+      } catch {}
+      cloudState = 'unknown';
+      toast(`Cloud address: ${cloudBase()}`);
+      try { checkServer(); } catch {}
+    };
+  }
+} catch {}
+
+async function loadSample() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600;
+  canvas.height = 700;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#F7F0E6';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#241A14';
+  ctx.textAlign = 'center';
+  ctx.font = '72px "Noto Sans Devanagari", serif';
+  ctx.fillText('धर्मो रक्षति रक्षितः', canvas.width / 2, 250);
+  ctx.font = '46px "Noto Sans Devanagari", serif';
+  ctx.fillText('विद्या विनयेन शोभते', canvas.width / 2, 390);
+  ctx.font = '28px sans-serif';
+  ctx.fillText('EyM Sanskrit OCR local test sample', canvas.width / 2, 520);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Could not create sample image.');
+  await handleFile(new File([blob], 'eym-sample.png', { type: 'image/png' }));
+}
+
+if ($('sample-btn')) $('sample-btn').onclick = () => loadSample().catch(err => {
+  console.error('Sample load failed:', err);
+  toast('Could not load sample.');
+});
+
+const drop = $('drop-zone'), fi = $('file-input');
+drop.onclick = () => fi.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); };
+fi.onchange = () => { if (fi.files[0]) handleFile(fi.files[0]); fi.value = ''; };
+
+if ($('pdf-prev-btn')) $('pdf-prev-btn').onclick = () => changePdfPage(-1);
+if ($('pdf-next-btn')) $('pdf-next-btn').onclick = () => changePdfPage(1);
+
+$('dark-toggle').onclick = () => {
+  document.body.classList.toggle('light-mode');
+  $('dark-toggle').textContent = document.body.classList.contains('light-mode') ? '🌙 Dark' : '☀ Light';
+};
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+document.addEventListener('keydown', e => {
+  const isInputActive = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+    if (e.key === 'f' || e.key === 'F') { e.preventDefault(); $('tb-find').click(); }
+    else if (e.key === 'h' || e.key === 'H') { e.preventDefault(); $('tb-replace').click(); }
+    else if (e.key === 'd' || e.key === 'D') { e.preventDefault(); $('tb-diff').click(); }
+    else if (e.key === 'g' || e.key === 'G') { e.preventDefault(); $('tb-global').click(); }
+    else if (e.key === '=' || e.key === '+') { e.preventDefault(); zoomBy(1.25); }
+    else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(0.8); }
+    else if (e.key === '0') { e.preventDefault(); setZoom(1.0); }
+  }
+
+  if (!isInputActive) {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (activeWord && activeWord.bbox && $('overlay').classList.contains('hidden')) {
+        e.preventDefault();
+        deleteActiveBbox();
+      }
+    }
+  }
+
+  if (e.key === 'Escape') closeModal();
+});
+
+async function loadManuscriptConfusions() {
+  if (!serverOnline) return;
+  try {
+    const r = await fetch(`${OCR_SERVER}/manuscript/confusions`);
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.confusions && data.confusions.length) {
+      // 🚀 FIX: Process all confusions silently without forcing a UI rebuild
+      let changes = false;
+      data.confusions.forEach(c => {
+        if (c.from && c.to && c.from !== c.to) {
+          const existing = state.matrix.find(m => m.guess === c.from && m.correct === c.to);
+          if (existing) {
+             existing.count++;
+          } else {
+             state.matrix.push({ id: uid(), guess: c.from, correct: c.to, count: 1, pinned: false });
+             changes = true;
+          }
+        }
+      });
+      // Render once if there were structural changes
+      if (changes) {
+         renderMatrix();
+         updateGlobalReplace();
+      }
+    }
+  } catch (e) {
+    console.warn('Could not load manuscript confusions:', e);
+  }
+}
+
+(async function init() {
+  try {
+    state.sessions = await kvGet('sessions', []);
+    state.matrix = await kvGet('matrix', []);
+  } catch (e) { console.error(e); }
+  renderSessions();
+  renderMatrix();
+  updateAnalytics();
+  updateGlobalReplace();
+  await checkServer();
+  await loadManuscriptConfusions();
+  ensureDictionary();
+  setInterval(checkServer, 30000);
+})();
+
+</script>
+</body>
+</html>
