@@ -784,6 +784,50 @@ body.light-mode #sidebar-tabs {
   box-shadow: var(--shadow-card); transition: opacity .2s;
 }
 #toast.show { opacity: 1; pointer-events: auto; }
+/* ═══════════════ SCROLL & LAYOUT FIXES (v-scrollfix) ═══════════════════════
+   1. backdrop-filter on every card inside a scrolling pane forces the GPU to
+      re-blur the full-screen photo behind each card on every scroll frame.
+      Blur is kept only on the static header; scrolling surfaces get a solid
+      translucent fill that looks the same and costs nothing.
+   2. #app-body height comes from the real header+toolbar height (JS sets
+      --chrome-h) instead of a hard-coded 88px, so the page no longer has two
+      competing scrollbars.
+   3. The workbench fills the viewport: image pane and transcription pane
+      scroll independently, side by side, so the manuscript never scrolls away
+      while you correct words.                                              */
+.card, #toolbar, #sidebar, .modal-box { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.card { background: color-mix(in srgb, var(--bg-card) 100%, var(--bg-deep) 35%); }
+body::before { will-change: auto; }
+#app-body { height: calc(100dvh - var(--chrome-h, 100px)); }
+#main-panel, .stab-pane { overscroll-behavior: contain; }
+
+#workbench-split {
+  height: calc(100dvh - var(--chrome-h, 100px) - 24px);
+  min-height: 560px;
+  align-items: stretch;
+}
+#workbench-split > .left-split-col,
+#workbench-split > #transcription-card {
+  min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
+}
+#image-overlay-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 380px; }
+#overlay-container {
+  flex: 1 1 auto; max-height: none; min-height: 300px;
+  overscroll-behavior: contain;        /* panning the image never drags the page */
+  background: #111;
+}
+#overlay-wrapper { transform: none !important; transition: none; vertical-align: top; }
+#source-img { max-width: none; }
+#extracted-text-card { flex: 0 0 auto; }
+#extracted-full-text-area { max-height: 32vh; overflow-y: auto; overscroll-behavior: contain; }
+
+@media (max-width: 1040px) {
+  #app-body { height: auto; }
+  #workbench-split { height: auto; min-height: 0; }
+  #workbench-split > .left-split-col, #workbench-split > #transcription-card { overflow: visible; }
+  #overlay-container { height: 70vh; flex: none; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
 </head>
 <body>
@@ -855,7 +899,7 @@ body.light-mode #sidebar-tabs {
           <option value="deva">Devanagari general (san/hin/mar/nep/eng)</option>
         </select>
         <select id="cloud-engine-sel" title="Cloud neural engine: MIDF = Kraken PP-OCRv6 (fast, 17MB), EasyOCR = Devanagari whole-page OCR, Qwen = vision model, TrOCR = word-level fallback" style="background:var(--bg-card2);color:var(--text-sub);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:11px">
-          <option value="midf" selected>☁ MIDF (fast line OCR, CPU)</option>
+          <option value="midf" selected>☁ MIDF (handwritten manuscripts)</option>
           <option value="easyocr">☁ EasyOCR (Devanagari, page)</option>
           <option value="auto">☁ Auto (MIDF lines / EasyOCR page)</option>
           <option value="qwen">☁ Qwen / Gemma (vision, GPU)</option>
@@ -1730,7 +1774,9 @@ async function ocrViaCloud(blobOrCanvas) {
   let sendBlob = blob;
   try {
     const bmp = await createImageBitmap(blob);
-    const MAX_SIDE = 1536;
+    // MIDF crops lines from the page itself — give it the real resolution.
+    // (1536 px made every character ~15 px tall on a full folio.)
+    const MAX_SIDE = 4096;
     const sc = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
     if (sc < 1) {
       const cv = document.createElement('canvas');
@@ -1860,7 +1906,29 @@ function isBlockMarginal(bbox, W, H) {
   return (cx < 0.14 || cx > 0.86) || (cy < 0.08 || cy > 0.92) || (wFrac < 0.22 && (cx < 0.25 || cx > 0.75));
 }
 
+/* MIDF/EasyOCR emit ASCII '|' / '||' for daṇḍa; the dictionary, metre and
+   export code all expect । and ॥. Normalise once, at the entry point.
+   Hyphen, asterisk, numerals etc. are left untouched. */
+function normalizeOcrText(t) {
+  return String(t || '')
+    .replace(/\s*\|\s*\|/g, '॥')
+    .replace(/\|/g, '।')
+    .replace(/।\s*।/g, '॥')
+    .normalize('NFC');
+}
+const TROCR_JUNK_RE = /\$%&'\(\)\*\+,-\.\/0123/;   // broken TrOCR tokenizer output
 function parseOcrResponse(data, W, H) {
+  if (data && Array.isArray(data.lines)) {
+    if (data.lines.some(l => TROCR_JUNK_RE.test(l.text || ''))) {
+      try { toast('The cloud TrOCR engine returned placeholder text (known server bug) — use MIDF.'); } catch {}
+      data.lines = data.lines.map(l => ({ ...l, text: (l.text || '').replace(new RegExp(TROCR_JUNK_RE.source + '[0-9]*', 'g'), '').trim() }));
+    }
+    data.lines.forEach(l => {
+      l.text = normalizeOcrText(l.text);
+      if (Array.isArray(l.words)) l.words.forEach(w => { w.text = normalizeOcrText(w.text); });
+    });
+  }
+  if (data && typeof data.text === 'string') data.text = normalizeOcrText(data.text);
   const blocks = [];
   
   if (data.lines && data.lines.length) {
@@ -2053,6 +2121,8 @@ function parseOcrResponse(data, W, H) {
 function updateMediumBadge(medium) {
   const badge = $('medium-badge');
   if (!badge) return;
+  // the cloud Space sends {medium_class, confidence, ...}; the local server sends a string
+  if (medium && typeof medium === 'object') medium = medium.medium_class || medium.class || 'paper_ink';
   const m = String(medium || 'paper_ink').toLowerCase();
   currentMediumClass = m;
   const labels = {
@@ -2129,7 +2199,7 @@ async function runOcrOnImage(imageSource, W, H, serverPayload = imageSource) {
 
   if (engine === 'cloud') {
     setProgress(0.05);
-    setStatus('Connecting to Cloud HTR (MIDF)…');
+    setStatus(`Connecting to Cloud HTR (${cloudEngineChoice().toUpperCase()})…`);
     try {
       const data = await ocrViaCloud(serverPayload);
       return { data, engine: 'cloud' };
@@ -2432,21 +2502,45 @@ function buildSessionFromOCR(data, imgObj, imgW, imgH) {
 let currentZoom = 1.0;
 const MIN_ZOOM = 0.25, MAX_ZOOM = 5.0;
 
-function setZoom(level) {
-  currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(level * 100) / 100));
-  const wrapper = $('overlay-wrapper');
-  if (wrapper) wrapper.style.transform = `scale(${currentZoom})`;
+// Zoom = real layout size (img width in px), NOT a CSS transform.
+// A transform does not change the scroll area, so the old version left
+// unreachable image edges when zoomed in and dead black space when zoomed
+// out — and it compounded with `max-width:100%` (double shrink).
+let fitMode = true;
+function setZoom(level, anchor) {
+  const container = $('overlay-container');
+  const img = $('source-img');
+  const prev = currentZoom;
+  currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(level * 1000) / 1000));
+  if (img && img.naturalWidth) {
+    img.style.width = Math.round(img.naturalWidth * currentZoom) + 'px';
+    img.style.height = 'auto';
+    // keep the point under the cursor (or the centre) still while zooming
+    if (container && prev && prev !== currentZoom) {
+      const ax = anchor ? anchor.x : container.clientWidth / 2;
+      const ay = anchor ? anchor.y : container.clientHeight / 2;
+      const k = currentZoom / prev;
+      container.scrollLeft = (container.scrollLeft + ax) * k - ax;
+      container.scrollTop = (container.scrollTop + ay) * k - ay;
+    }
+  }
   const badge = $('zoom-badge');
   if (badge) badge.textContent = `${Math.round(currentZoom * 100)}%`;
 }
-function zoomBy(factor) { setZoom(currentZoom * factor); }
+function zoomBy(factor, anchor) { fitMode = false; setZoom(currentZoom * factor, anchor); }
 function fitZoom() {
+  fitMode = true;
   const container = $('overlay-container');
   const img = $('source-img');
   if (!container || !img || !img.naturalWidth) { setZoom(1.0); return; }
-  const cWidth = container.clientWidth - 16;
-  const ratio = cWidth / img.naturalWidth;
-  setZoom(Math.max(MIN_ZOOM, Math.min(1.0, ratio)));
+  // Edge to edge: fill the pane width, upscaling small images too.
+  const ratio = (container.clientWidth - 2) / img.naturalWidth;
+  setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, ratio)));
+  container.scrollTop = 0; container.scrollLeft = 0;
+}
+if (typeof ResizeObserver !== 'undefined') {
+  const _oc = document.getElementById('overlay-container');
+  if (_oc) new ResizeObserver(() => { if (fitMode) fitZoom(); }).observe(_oc);
 }
 
 /* ─── Bounding Box Overlay ─────────────────────────────────────────────────── */
@@ -3832,16 +3926,30 @@ $('view-mode-editor').onclick = () => {
   $(id).onchange = renderBboxOverlay;
 });
 
+/* real header+toolbar height → --chrome-h (replaces the hard-coded 88px) */
+(function syncChromeHeight() {
+  const set = () => {
+    const h = ($('app-header') ? $('app-header').offsetHeight : 0) + ($('toolbar') ? $('toolbar').offsetHeight : 0);
+    document.documentElement.style.setProperty('--chrome-h', h + 'px');
+  };
+  set();
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(set);
+    ['app-header', 'toolbar'].forEach(id => $(id) && ro.observe($(id)));
+  } else window.addEventListener('resize', set);
+})();
+
 $('btn-zoom-in').onclick = () => zoomBy(1.25);
 $('btn-zoom-out').onclick = () => zoomBy(0.8);
 $('btn-zoom-fit').onclick = fitZoom;
-$('btn-zoom-100').onclick = () => setZoom(1.0);
+$('btn-zoom-100').onclick = () => { fitMode = false; setZoom(1.0); };
 
 $('overlay-container').addEventListener('wheel', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) {
     e.preventDefault();
-    if (e.deltaY < 0) zoomBy(1.15);
-    else zoomBy(0.85);
+    const r = e.currentTarget.getBoundingClientRect();
+    const anchor = { x: e.clientX - r.left, y: e.clientY - r.top };
+    zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, anchor);
   }
 }, { passive: false });
 
@@ -3923,7 +4031,14 @@ if ($('shreeshrii-model-sel')) {
 try {
   const _ces = $('cloud-engine-sel');
   if (_ces) {
-    try { _ces.value = localStorage.getItem('eymCloudEngine') || 'auto'; } catch {}
+    // 'auto' currently routes to EasyOCR, which crashes on the ZeroGPU Space and
+    // then falls back to MIDF anyway — default (and migrate) to MIDF directly.
+    try {
+      let v = localStorage.getItem('eymCloudEngine');
+      if (!v || (v === 'auto' && !localStorage.getItem('eymCloudEngineV2'))) v = 'midf';
+      localStorage.setItem('eymCloudEngineV2', '1');
+      _ces.value = v;
+    } catch { _ces.value = 'midf'; }
     _ces.onchange = () => {
       try { localStorage.setItem('eymCloudEngine', _ces.value); } catch {}
       toast(`Cloud engine: ${_ces.value === 'auto' ? 'Auto (EasyOCR full page / MIDF line OCR)' : _ces.value === 'easyocr' ? 'EasyOCR (Devanagari full-page text + boxes)' : _ces.value === 'midf' ? 'MIDF — Kraken PP-OCRv6, 17 MB on CPU (~0.2s a line)' : _ces.value === 'qwen' ? 'Qwen / Gemma (vision model, GPU)' : 'TrOCR (word-level fallback)'}`);

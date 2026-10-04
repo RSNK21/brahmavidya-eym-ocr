@@ -1,0 +1,30 @@
+# EyM Sanskrit Cloud HTR — Hugging Face Space dependencies.
+
+# transformers 5.x breaks the TrOCR-Devanagari processor (returns "$%&'()*+,-./0123..." for every word)
+transformers>=4.46,<5
+torch<=2.14
+torchvision
+
+# Primary Multi-line Devanagari OCR (EasyOCR — fast, whole-page text + boxes)
+easyocr
+python-bidi
+scikit-image
+pyclipper
+shapely
+ninja
+
+# Kraken PP-OCRv6 line OCR (tadad/midf-sanskrit-ocr)
+kraken==7.1.1
+coremltools~=9.0
+safetensors~=0.7.0
+
+# Vision LLMs (Qwen 2.5-VL, Gemma 3) + TrOCR
+accelerate>=1.1.0
+sentencepiece
+qwen-vl-utils
+peft
+bitsandbytes
+kernels>=0.12.0,<0.13
+opencv-python-headless>=4.7.0
+Pillow>=10.0.1
+numpy>=1.21.0
