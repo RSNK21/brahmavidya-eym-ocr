@@ -1,7 +1,7 @@
 # EyM Sanskrit Cloud HTR — Hugging Face Space dependencies.
 
-# transformers 5.x breaks the TrOCR-Devanagari processor (returns "$%&'()*+,-./0123..." for every word)
-transformers>=4.46,<5
+# Must stay on 5.x: gradio 6.28 needs huggingface-hub>=1.16, transformers 4.x needs <1.0
+transformers==5.12.1
 torch<=2.14
 torchvision
 

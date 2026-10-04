@@ -445,7 +445,10 @@ def load_trocr():
                     model = pm
             except Exception as e:
                 _log(f"adapter failed ({e}) — base model continues")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # ZeroGPU: TrOCR runs OUTSIDE the @spaces.GPU function, so moving it to
+        # "cuda" here gives it placeholder weights and it emits the same junk
+        # ("$%&'()*+,-./0123…") for every image. Keep it on CPU.
+        device = "cpu"
         model = model.to(device).eval()
         _trocr_model, _trocr_proc = model, proc
         _log(f"TrOCR ready on {device} ✓")
