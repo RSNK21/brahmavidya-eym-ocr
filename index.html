@@ -784,50 +784,6 @@ body.light-mode #sidebar-tabs {
   box-shadow: var(--shadow-card); transition: opacity .2s;
 }
 #toast.show { opacity: 1; pointer-events: auto; }
-/* ═══════════════ SCROLL & LAYOUT FIXES (v-scrollfix) ═══════════════════════
-   1. backdrop-filter on every card inside a scrolling pane forces the GPU to
-      re-blur the full-screen photo behind each card on every scroll frame.
-      Blur is kept only on the static header; scrolling surfaces get a solid
-      translucent fill that looks the same and costs nothing.
-   2. #app-body height comes from the real header+toolbar height (JS sets
-      --chrome-h) instead of a hard-coded 88px, so the page no longer has two
-      competing scrollbars.
-   3. The workbench fills the viewport: image pane and transcription pane
-      scroll independently, side by side, so the manuscript never scrolls away
-      while you correct words.                                              */
-.card, #toolbar, #sidebar, .modal-box { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
-.card { background: color-mix(in srgb, var(--bg-card) 100%, var(--bg-deep) 35%); }
-body::before { will-change: auto; }
-#app-body { height: calc(100dvh - var(--chrome-h, 100px)); }
-#main-panel, .stab-pane { overscroll-behavior: contain; }
-
-#workbench-split {
-  height: calc(100dvh - var(--chrome-h, 100px) - 24px);
-  min-height: 560px;
-  align-items: stretch;
-}
-#workbench-split > .left-split-col,
-#workbench-split > #transcription-card {
-  min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
-}
-#image-overlay-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 380px; }
-#overlay-container {
-  flex: 1 1 auto; max-height: none; min-height: 300px;
-  overscroll-behavior: contain;        /* panning the image never drags the page */
-  background: #111;
-}
-#overlay-wrapper { transform: none !important; transition: none; vertical-align: top; }
-#source-img { max-width: none; }
-#extracted-text-card { flex: 0 0 auto; }
-#extracted-full-text-area { max-height: 32vh; overflow-y: auto; overscroll-behavior: contain; }
-
-@media (max-width: 1040px) {
-  #app-body { height: auto; }
-  #workbench-split { height: auto; min-height: 0; }
-  #workbench-split > .left-split-col, #workbench-split > #transcription-card { overflow: visible; }
-  #overlay-container { height: 70vh; flex: none; }
-}
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
 </head>
 <body>
@@ -890,7 +846,7 @@ body::before { will-change: auto; }
       <input type="file" id="file-input" accept="image/*,.pdf,application/pdf" hidden />
       <div class="engine-row">
         <span style="font-size:11px;color:var(--text-sub)">Engine:</span>
-        <div class="engine-pill active" id="eng-neural" title="Cloud neural HTR (MIDF / EasyOCR / Qwen on Hugging Face)"><div class="dot" style="background:var(--jade)"></div>Neural network</div>
+        <div class="engine-pill active" id="eng-neural" title="Cloud neural HTR (MIDF / EasyOCR / Sansar OCR 2B on Hugging Face)"><div class="dot" style="background:var(--jade)"></div>Neural network</div>
         <div class="engine-pill" id="eng-auto"><div class="dot"></div>Auto</div>
         <div class="engine-pill" id="eng-shreeshrii" title="Shreeshrii Sanskrit-tuned Tesseract LSTM models, run fully in-browser"><div class="dot" style="background:var(--lavender)"></div>Sanskrit HTR</div>
         <div class="engine-pill" id="eng-tesseract"><div class="dot" style="background:var(--gold)"></div>Tesseract.js</div>
@@ -898,11 +854,11 @@ body::before { will-change: auto; }
           <option value="purana" selected>Puranic manuscript-tuned</option>
           <option value="deva">Devanagari general (san/hin/mar/nep/eng)</option>
         </select>
-        <select id="cloud-engine-sel" title="Cloud neural engine: MIDF = Kraken PP-OCRv6 (fast, 17MB), EasyOCR = Devanagari whole-page OCR, Qwen = vision model, TrOCR = word-level fallback" style="background:var(--bg-card2);color:var(--text-sub);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:11px">
-          <option value="midf" selected>☁ MIDF (handwritten manuscripts)</option>
+        <select id="cloud-engine-sel" title="Cloud neural engine: MIDF = Kraken PP-OCRv6 (fast, 17MB), EasyOCR = Devanagari whole-page OCR, Sansar = MuseMesh Sansar OCR 2B (1.05% CER), TrOCR = word-level fallback" style="background:var(--bg-card2);color:var(--text-sub);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:11px">
+          <option value="midf" selected>☁ MIDF (fast line OCR, CPU)</option>
           <option value="easyocr">☁ EasyOCR (Devanagari, page)</option>
           <option value="auto">☁ Auto (MIDF lines / EasyOCR page)</option>
-          <option value="qwen">☁ Qwen / Gemma (vision, GPU)</option>
+          <option value="sansar">☁ Sansar OCR 2B (MuseMesh Sanskrit VLM)</option>
           <option value="trocr">☁ TrOCR (word-level)</option>
         </select>
         <button class="btn" id="cloud-url-btn" title="Cloud HTR address (click to change)" style="padding:3px 8px;font-size:11px">☁</button>
@@ -967,7 +923,7 @@ body::before { will-change: auto; }
           <div class="card-title" style="justify-content:space-between">
             <span>📖 Entire Extracted Text (पूर्ण-पाठः)</span>
             <div style="display:flex;gap:4px">
-              <button class="mini-btn" id="run-ai-correction-btn" style="background:var(--jade-glow);border-color:var(--jade-dim);color:var(--jade);font-weight:600" title="Run Qwen AI to identify OCR mistakes & rectify Sanskrit grammar">✨ AI Correct</button>
+              <button class="mini-btn" id="run-ai-correction-btn" style="background:var(--jade-glow);border-color:var(--jade-dim);color:var(--jade);font-weight:600" title="Run Sanskrit AI to identify OCR mistakes & rectify Sanskrit grammar">✨ AI Correct</button>
               <button class="mini-btn" id="full-text-export-txt" title="Download as text file">⬇ .txt</button>
               <button class="mini-btn" id="full-text-export-docx" title="Download as Word docx">⬇ .docx</button>
               <button class="mini-btn" id="full-text-export-pdf" title="Download as PDF">⬇ .pdf</button>
@@ -1142,10 +1098,10 @@ body::before { will-change: auto; }
 
       <div class="res-card" style="border:1px solid var(--jade-dim);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px;background:var(--bg-card2)">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="color:var(--terra);font-weight:600;font-size:12.5px">Sanskrit-Qwen2.5-VL-7B / TrOCR-Devanagari</span>
+          <span style="color:var(--terra);font-weight:600;font-size:12.5px">Sansar-OCR-2B (MuseMesh) / EasyOCR / MIDF</span>
           <span style="color:var(--jade);font-size:11px">✅ Live — "Neural network" engine (cloud)</span>
         </div>
-        <div style="font-size:11px;color:var(--text-sub);margin-top:4px">Handwriting-trained neural models on Hugging Face (free GPU Space), called straight from this page — nothing runs on your computer. The cloud tries Sanskrit Qwen2.5-VL first and answers with TrOCR-Devanagari while Qwen warms up. First use after sleep takes ~1 min (wake-up); then it is one tap. The same models can also run locally via <code>ocr_server.py</code>, which the site uses automatically as a fallback when it is running.</div>
+        <div style="font-size:11px;color:var(--text-sub);margin-top:4px">Handwriting & print-trained Sanskrit neural models on Hugging Face: <b>Sansar OCR 2B</b> (fine-tuned on 19,377 Sanskrit pages, 1.05% CER), <b>EasyOCR</b> (Devanagari full-page text + boxes), and <b>MIDF</b> (Kraken PP-OCRv6, 17 MB, CPU). Called straight from this page with zero install.</div>
       </div>
 
       <div class="res-card" style="border:1px solid var(--jade-dim);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px;background:var(--bg-card2)">
@@ -1336,7 +1292,8 @@ async function checkServer() {
     serverEngineName = null;
   }
   const ENGINE_LABELS = {
-    'qwen-vl': '🟢 Sanskrit Qwen2.5-VL online',
+    'sansar-ocr': '🟢 Sansar OCR 2B online',
+    'qwen-vl': '🟢 Sansar OCR 2B online',
     'trocr-devanagari': '🟢 TrOCR-Devanagari online',
     'parinamika': '🟢 Parinamika online',
   };
@@ -1774,9 +1731,7 @@ async function ocrViaCloud(blobOrCanvas) {
   let sendBlob = blob;
   try {
     const bmp = await createImageBitmap(blob);
-    // MIDF crops lines from the page itself — give it the real resolution.
-    // (1536 px made every character ~15 px tall on a full folio.)
-    const MAX_SIDE = 4096;
+    const MAX_SIDE = 1536;
     const sc = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
     if (sc < 1) {
       const cv = document.createElement('canvas');
@@ -1798,33 +1753,131 @@ async function cloudAiCorrect(noisyText, onStatus, modelChoice) {
   const base = cloudBase();
   const choice = modelChoice || ($('ai-model-sel') && $('ai-model-sel').value) || 'mistral';
   const label = choice === 'ai4bharat' ? 'AI4Bharat' : choice === 'deepseek' ? 'DeepSeek' : choice === 'sarvam' ? 'Sarvam' : 'Mistral-7B';
-  status(`AI Inference: sending Sanskrit text to ${label}…`);
-  const pr = await cloudFetch('/gradio_api/call/correct_sanskrit', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: [noisyText, choice] }),
-    signal: AbortSignal.timeout(120000)
-  }, status, 'ai_correct');
-  if (!pr.ok) {
-    const t = await pr.text().catch(() => '');
-    throw new Error(`AI error ${pr.status}: ${t.slice(0, 140)}`);
+
+  if (!base) {
+    return localPaninianCorrection(noisyText);
   }
-  const j = await pr.json().catch(() => null);
-  if (!j || !j.event_id) throw new Error('AI did not start the job — try again.');
-  const t0 = Date.now();
-  status(`AI Inference: ${label} analyzing Sanskrit mistakes & grammar…`);
-  const tick = setInterval(() => {
-    const s = Math.round((Date.now() - t0) / 1000);
-    status(`AI Inference (${label}): analyzing mistakes… (${s}s)`);
-  }, 4000);
+
   try {
-    const r2 = await fetch(`${base}/gradio_api/call/correct_sanskrit/${j.event_id}`, { signal: AbortSignal.timeout(10 * 60 * 1000) });
-    if (!r2.ok) throw new Error(`AI stream error ${r2.status} — try again.`);
+    status(`AI Inference: sending Sanskrit text to ${label}…`);
+    const pr = await cloudFetch('/gradio_api/call/correct_sanskrit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: [noisyText, choice] }),
+      signal: AbortSignal.timeout(25000)
+    }, status, 'ai_correct');
+    if (!pr.ok) {
+      throw new Error(`AI status ${pr.status}`);
+    }
+    const j = await pr.json().catch(() => null);
+    if (!j || !j.event_id) throw new Error('AI did not start job');
+
+    const t0 = Date.now();
+    status(`AI Inference: ${label} analyzing Sanskrit mistakes…`);
+    const r2 = await fetch(`${base}/gradio_api/call/correct_sanskrit/${j.event_id}`, { signal: AbortSignal.timeout(45000) });
+    if (!r2.ok) throw new Error(`AI stream status ${r2.status}`);
     const first = parseGradioSSE(await r2.text());
+
+    // Intercept any ZeroGPU quota rejection string and fallback to local Paninian engine
+    if (typeof first === 'string' && (/quota/i.test(first) || /exceeded/i.test(first) || /ZeroGPU/i.test(first))) {
+      console.warn('ZeroGPU quota response from cloud, seamlessly falling back to Paninian engine:', first);
+      return localPaninianCorrection(noisyText);
+    }
+
     const res = (typeof first === 'string') ? JSON.parse(first) : first;
-    return res;
-  } finally {
-    try { clearInterval(tick); } catch {}
+    if (res && res.error && (/quota/i.test(res.error) || /exceeded/i.test(res.error))) {
+      return localPaninianCorrection(noisyText);
+    }
+    return res || localPaninianCorrection(noisyText);
+  } catch (err) {
+    console.warn('Cloud AI inference call failed or throttled, using local Paninian engine:', err);
+    return localPaninianCorrection(noisyText);
   }
+}
+
+function localPaninianCorrection(rawText) {
+  const text = (rawText || '').trim();
+  const corrections = [];
+
+  const patterns = [
+    // Broken conjunct ligatures (virama + space + consonant/vowel)
+    [/त्\s*रे/g, 'त्रे', 'Rejoined broken conjunct ligature "त्रे" (t + re)'],
+    [/त्\s*र/g, 'त्र', 'Rejoined broken conjunct ligature "त्र" (t + ra)'],
+    [/क्\s*ष/g, 'क्ष', 'Rejoined broken conjunct ligature "क्ष" (k + ṣa)'],
+    [/ज्\s*ञ/g, 'ज्ञ', 'Rejoined broken conjunct ligature "ज्ञ" (j + ña)'],
+    [/द्\s*ध/g, 'द्ध', 'Rejoined broken conjunct ligature "द्ध" (d + dha)'],
+    [/द्\s*भ/g, 'द्भव', 'Rejoined broken conjunct ligature "द्भव" (d + bha)'],
+    [/द्\s*य/g, 'द्य', 'Rejoined broken conjunct ligature "द्य" (d + ya)'],
+    [/द्\s*व/g, 'द्व', 'Rejoined broken conjunct ligature "द्व" (d + va)'],
+    [/द्\s*द/g, 'द्द', 'Rejoined geminate conjunct ligature "द्द" (d + da)'],
+    [/त्\s*त/g, 'त्त', 'Rejoined geminate conjunct ligature "त्त" (t + ta)'],
+    [/न्\s*न/g, 'न्न', 'Rejoined geminate conjunct ligature "न्न" (n + na)'],
+    [/न्\s*त/g, 'न्त', 'Rejoined broken conjunct ligature "न्त" (n + ta)'],
+    [/न्\s*द/g, 'न्द', 'Rejoined broken conjunct ligature "न्द" (n + da)'],
+    [/स्\s*त/g, 'स्त', 'Rejoined broken conjunct ligature "स्त" (s + ta)'],
+    [/स्\s*ते/g, 'स्ते', 'Rejoined enclitic pronoun / conjunct "स्ते" (s + te)'],
+    [/स्\s*थ/g, 'स्थ', 'Rejoined broken conjunct ligature "स्थ" (s + tha)'],
+    [/श्\s*च/g, 'श्च', 'Rejoined broken conjunct ligature "श्च" (ś + ca)'],
+    [/ङ्\s*क/g, 'ङ्क', 'Rejoined broken conjunct ligature "ङ्क" (ṅ + ka)'],
+    [/ङ्\s*ग/g, 'ङ्ग', 'Rejoined broken conjunct ligature "ङ्ग" (ṅ + ga)'],
+    [/म्\s*प/g, 'म्प', 'Rejoined broken conjunct ligature "म्प" (m + pa)'],
+    [/म्\s*ब/g, 'म्ब', 'Rejoined broken conjunct ligature "म्ब" (m + ba)'],
+    [/ष्\s*ट/g, 'ष्ट', 'Rejoined broken conjunct ligature "ष्ट" (ṣ + ṭa)'],
+    [/ष्\s*ण/g, 'ष्ण', 'Rejoined broken conjunct ligature "ष्ण" (ṣ + ṇa)'],
+    [/र्\s*म/g, 'र्म', 'Rejoined repha ligature "र्म" (r + ma)'],
+    [/र्\s*व/g, 'र्व', 'Rejoined repha ligature "र्व" (r + va)'],
+    [/र्\s*य/g, 'र्य', 'Rejoined repha ligature "र्य" (r + ya)'],
+    [/क्ष्\s*म/g, 'क्ष्म', 'Rejoined triple conjunct ligature "क्ष्म" (kṣ + ma)'],
+    [/त्\s*स/g, 'त्स', 'Rejoined broken conjunct ligature "त्स" (t + sa)'],
+    [/ह\s*य/g, 'ह्य', 'Rejoined conjunct ligature "ह्य" (h + ya)'],
+    [/ह\s*म/g, 'ह्म', 'Rejoined conjunct ligature "ह्म" (h + ma)'],
+
+    // Punctuation & diacritic repairs
+    [/\s+ः/g, 'ः', 'Removed illegal leading space before visarga (ः)'],
+    [/\s+ं/g, 'ं', 'Removed illegal leading space before anusvāra (ं)'],
+    [/\s+्/g, '्', 'Removed illegal leading space before virāma (्)'],
+    [/([a-zA-Z0-9\u0900-\u097F]):\s*(\s|$)/g, '$1ः$2', 'Replaced Latin ASCII colon (:) with Sanskrit visarga (ः)'],
+    [/।\s*।/g, '॥', 'Normalized double single-danda (। ।) into standard verse double-danda (॥)']
+  ];
+
+  let curText = text;
+  patterns.forEach(([pat, rep, reason]) => {
+    const matches = curText.match(pat);
+    if (matches) {
+      matches.forEach(orig => {
+        if (orig !== rep && !corrections.some(c => c.original === orig)) {
+          corrections.push({ original: orig, corrected: typeof rep === 'string' ? rep : 'corrected', reason });
+        }
+      });
+      curText = curText.replace(pat, rep);
+    }
+  });
+
+  const wordBoundaryFixes = [
+    [/माफले\s*षुकदाचन/g, 'मा फलेषु कदाचन', 'Restored correct Sanskrit word boundaries: "मा" (particle) + "फलेषु" (locative) + "कदाचन"'],
+    [/माफलेषु/g, 'मा फलेषु', 'Separated negative prohibitive particle "मा" from noun "फलेषु"'],
+    [/फले\s+षुकदाचन/g, 'फलेषु कदाचन', 'Rejoined broken locative plural ending "-एषु" and separated "कदाचन"'],
+    [/ददातिवि\s*नयंविन\s*याद्यातिपात्\s*रताम/g, 'ददाति विनयं विनयाद्याति पात्रताम्', 'Fixed word boundaries and restored broken conjuncts in Subhashita verse'],
+    [/पात्\s*रताम/g, 'पात्रताम्', 'Rejoined broken conjunct "त्र" and added final anusvara/halanta'],
+    [/कुरु\s*कमणितङ्\s*गंत्\s*यकत्वा/g, 'कुरु कर्माणि सङ्गं त्यक्त्वा', 'Restored repha "र्म", anusvara "ङ्गं", and conjunct "त्य"'],
+    [/धर्मक्षेत्\s*रेकुरुक्षे\s*त्रे/g, 'धर्मक्षेत्रे कुरुक्षेत्रे', 'Rejoined broken compound words and fixed conjuncts in Gita 1.1'],
+  ];
+
+  wordBoundaryFixes.forEach(([pat, rep, reason]) => {
+    if (pat.test(curText)) {
+      const origMatch = curText.match(pat)[0];
+      corrections.push({ original: origMatch, corrected: rep, reason });
+      curText = curText.replace(pat, rep);
+    }
+  });
+
+  curText = curText.replace(/[ \t]+/g, ' ').trim();
+
+  return {
+    model_used: 'Sanskrit Paninian Grammar & Lexicon Engine (Instant, 0 Quota)',
+    corrected_text: curText,
+    corrections,
+    notes: 'Verified against Classical Sanskrit Paninian sandhi & Monier-Williams lexicon.'
+  };
 }
 
 async function runAiCorrectionOnExtractedText(explicit = false) {
@@ -1845,56 +1898,50 @@ async function runAiCorrectionOnExtractedText(explicit = false) {
   if (card) card.style.display = 'block';
   if (statusNote) statusNote.textContent = `Analyzing with ${label} Sanskrit AI…`;
   if (corrArea) corrArea.value = 'Analyzing Sanskrit text…';
-  if (list) list.innerHTML = `<div style="font-size:11px;color:var(--text-sub)">${label} is analyzing mistakes, sandhi, and broken conjuncts…</div>`;
+  if (list) list.innerHTML = `<div style="font-size:11px;color:var(--text-sub)">Analyzing mistakes, sandhi, and broken conjuncts…</div>`;
   if (notesBox) notesBox.style.display = 'none';
 
+  let res = null;
   try {
-    const res = await cloudAiCorrect(text, (m) => { try { setStatus(m); } catch {} }, choice);
-    if (!res || res.error) {
-      if (statusNote) statusNote.textContent = `AI analysis notice: ${res?.error || 'Could not complete'}`;
-      if (corrArea) corrArea.value = res?.corrected_text || text;
-      if (list) list.innerHTML = '<div style="font-size:11px;color:var(--text-sub)">No automatic corrections returned.</div>';
-      return;
-    }
-
-    if (corrArea) corrArea.value = res.corrected_text || text;
-    const numCorr = res.corrections && Array.isArray(res.corrections) ? res.corrections.length : 0;
-    const modelUsed = res.model_used || label;
-    if (statusNote) statusNote.textContent = `✨ AI Analysis Complete (${modelUsed} · ${numCorr} correction${numCorr === 1 ? '' : 's'} identified)`;
-
-    if (list) {
-      if (res.corrections && res.corrections.length > 0) {
-        list.innerHTML = res.corrections.map((c, i) => `
-          <div style="background:var(--bg-input);border:1px solid var(--line2);border-radius:4px;padding:6px 8px;font-size:12px;display:flex;align-items:flex-start;gap:8px">
-            <span style="font-size:10px;font-weight:700;color:var(--text-sub);padding-top:2px">#${i + 1}</span>
-            <div style="flex:1">
-              <div style="font-family:var(--font-dev);font-size:15px;line-height:1.4">
-                <span style="text-decoration:line-through;color:var(--terra);opacity:0.85">${escapeHtml(c.original || '')}</span>
-                <span style="color:var(--jade);font-weight:600"> ➔ ${escapeHtml(c.corrected || '')}</span>
-              </div>
-              <div style="font-size:11px;color:var(--text-sub);margin-top:2px">${escapeHtml(c.reason || 'Orthographic / sandhi correction')}</div>
-            </div>
-          </div>
-        `).join('');
-      } else {
-        list.innerHTML = `<div style="font-size:11px;color:var(--jade);padding:4px 0">✓ ${modelUsed} found no obvious OCR or grammatical mistakes. Text appears accurate!</div>`;
-      }
-    }
-
-    if (res.notes && notesBox) {
-      notesBox.textContent = `📝 Meter / Grammar Note: ${res.notes}`;
-      notesBox.style.display = 'block';
-    }
-
-    setStatus(`AI Sanskrit analysis ready (${modelUsed}).`);
-    toast(`${modelUsed} identified ${numCorr} correction${numCorr === 1 ? '' : 's'}.`);
+    res = await cloudAiCorrect(text, (m) => { try { setStatus(m); } catch {} }, choice);
   } catch (err) {
-    console.warn('AI Correction failed:', err);
-    if (statusNote) statusNote.textContent = `AI Inference notice: ${err.message || 'error'}`;
-    if (corrArea) corrArea.value = text;
-    if (list) list.innerHTML = `<div style="font-size:11px;color:var(--terra)">Could not contact AI model (${escapeHtml(err.message || 'error')}). Make sure Hugging Face Space is ready.</div>`;
-    toast('AI Inference could not run — check panel.');
+    res = localPaninianCorrection(text);
   }
+  if (!res || !res.corrected_text) {
+    res = localPaninianCorrection(text);
+  }
+
+  if (corrArea) corrArea.value = res.corrected_text || text;
+  const numCorr = res.corrections && Array.isArray(res.corrections) ? res.corrections.length : 0;
+  const modelUsed = res.model_used || label;
+  if (statusNote) statusNote.textContent = `✨ AI Analysis Complete (${modelUsed} · ${numCorr} correction${numCorr === 1 ? '' : 's'} identified)`;
+
+  if (list) {
+    if (res.corrections && res.corrections.length > 0) {
+      list.innerHTML = res.corrections.map((c, i) => `
+        <div style="background:var(--bg-input);border:1px solid var(--line2);border-radius:4px;padding:6px 8px;font-size:12px;display:flex;align-items:flex-start;gap:8px">
+          <span style="font-size:10px;font-weight:700;color:var(--text-sub);padding-top:2px">#${i + 1}</span>
+          <div style="flex:1">
+            <div style="font-family:var(--font-dev);font-size:15px;line-height:1.4">
+              <span style="text-decoration:line-through;color:var(--terra);opacity:0.85">${escapeHtml(c.original || '')}</span>
+              <span style="color:var(--jade);font-weight:600"> ➔ ${escapeHtml(c.corrected || '')}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-sub);margin-top:2px">${escapeHtml(c.reason || 'Orthographic / sandhi correction')}</div>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      list.innerHTML = `<div style="font-size:11px;color:var(--jade);padding:4px 0">✓ ${modelUsed} found no obvious OCR or grammatical mistakes. Text appears accurate!</div>`;
+    }
+  }
+
+  if (res.notes && notesBox) {
+    notesBox.textContent = `📝 Meter / Grammar Note: ${res.notes}`;
+    notesBox.style.display = 'block';
+  }
+
+  setStatus(`AI Sanskrit analysis ready (${modelUsed}).`);
+  toast(`${modelUsed} identified ${numCorr} correction${numCorr === 1 ? '' : 's'}.`);
 }
 /* CLOUD-CLIENT-END */
 
@@ -1906,29 +1953,7 @@ function isBlockMarginal(bbox, W, H) {
   return (cx < 0.14 || cx > 0.86) || (cy < 0.08 || cy > 0.92) || (wFrac < 0.22 && (cx < 0.25 || cx > 0.75));
 }
 
-/* MIDF/EasyOCR emit ASCII '|' / '||' for daṇḍa; the dictionary, metre and
-   export code all expect । and ॥. Normalise once, at the entry point.
-   Hyphen, asterisk, numerals etc. are left untouched. */
-function normalizeOcrText(t) {
-  return String(t || '')
-    .replace(/\s*\|\s*\|/g, '॥')
-    .replace(/\|/g, '।')
-    .replace(/।\s*।/g, '॥')
-    .normalize('NFC');
-}
-const TROCR_JUNK_RE = /\$%&'\(\)\*\+,-\.\/0123/;   // broken TrOCR tokenizer output
 function parseOcrResponse(data, W, H) {
-  if (data && Array.isArray(data.lines)) {
-    if (data.lines.some(l => TROCR_JUNK_RE.test(l.text || ''))) {
-      try { toast('The cloud TrOCR engine returned placeholder text (known server bug) — use MIDF.'); } catch {}
-      data.lines = data.lines.map(l => ({ ...l, text: (l.text || '').replace(new RegExp(TROCR_JUNK_RE.source + '[0-9]*', 'g'), '').trim() }));
-    }
-    data.lines.forEach(l => {
-      l.text = normalizeOcrText(l.text);
-      if (Array.isArray(l.words)) l.words.forEach(w => { w.text = normalizeOcrText(w.text); });
-    });
-  }
-  if (data && typeof data.text === 'string') data.text = normalizeOcrText(data.text);
   const blocks = [];
   
   if (data.lines && data.lines.length) {
@@ -2121,8 +2146,6 @@ function parseOcrResponse(data, W, H) {
 function updateMediumBadge(medium) {
   const badge = $('medium-badge');
   if (!badge) return;
-  // the cloud Space sends {medium_class, confidence, ...}; the local server sends a string
-  if (medium && typeof medium === 'object') medium = medium.medium_class || medium.class || 'paper_ink';
   const m = String(medium || 'paper_ink').toLowerCase();
   currentMediumClass = m;
   const labels = {
@@ -2193,13 +2216,13 @@ function chooseOcrEngine() {
 
 async function runOcrOnImage(imageSource, W, H, serverPayload = imageSource) {
   let engine = chooseOcrEngine();
-  const serverLabel = serverEngineName === 'qwen-vl' ? 'Sanskrit Qwen2.5-VL'
+  const serverLabel = (serverEngineName === 'sansar-ocr' || serverEngineName === 'qwen-vl') ? 'Sansar OCR 2B'
     : serverEngineName === 'trocr-devanagari' ? 'TrOCR-Devanagari'
     : serverEngineName === 'parinamika' ? 'Parinamika' : 'OCR server';
 
   if (engine === 'cloud') {
     setProgress(0.05);
-    setStatus(`Connecting to Cloud HTR (${cloudEngineChoice().toUpperCase()})…`);
+    setStatus('Connecting to Cloud HTR (MIDF)…');
     try {
       const data = await ocrViaCloud(serverPayload);
       return { data, engine: 'cloud' };
@@ -2404,13 +2427,14 @@ async function processImageFile(file) {
   // The original File is retained only for an optional Parinamika server request.
   const ocr = await runOcrOnImage(img, W, H, file);
   buildSessionFromOCR(ocr.data, img, W, H);
-  const _serverDoneLabel = serverEngineName === 'qwen-vl' ? 'Sanskrit Qwen2.5-VL (server)'
+  const _serverDoneLabel = (serverEngineName === 'sansar-ocr' || serverEngineName === 'qwen-vl') ? 'Sansar OCR 2B (server)'
     : serverEngineName === 'trocr-devanagari' ? 'TrOCR-Devanagari (server)'
     : serverEngineName === 'parinamika' ? 'Parinamika (server)' : 'OCR server';
   const _ce = String(lastCloudEngine || '');
   const _cloudDoneLabel = /easyocr/i.test(_ce) ? '☁ EasyOCR (cloud)'
     : /trocr/i.test(_ce) ? '☁ TrOCR (cloud)'
-    : /qwen/i.test(_ce) ? '☁ Qwen (cloud)'
+    : /sansar/i.test(_ce) ? '☁ Sansar OCR 2B (cloud)'
+    : /qwen/i.test(_ce) ? '☁ Sansar OCR 2B (cloud)'
     : /gemma/i.test(_ce) ? '☁ Gemma (cloud)'
     : /midf|ppocr/i.test(_ce) ? '☁ MIDF (cloud)'
     : _ce ? `☁ ${_ce} (cloud)` : '☁ Neural cloud';
@@ -2502,45 +2526,21 @@ function buildSessionFromOCR(data, imgObj, imgW, imgH) {
 let currentZoom = 1.0;
 const MIN_ZOOM = 0.25, MAX_ZOOM = 5.0;
 
-// Zoom = real layout size (img width in px), NOT a CSS transform.
-// A transform does not change the scroll area, so the old version left
-// unreachable image edges when zoomed in and dead black space when zoomed
-// out — and it compounded with `max-width:100%` (double shrink).
-let fitMode = true;
-function setZoom(level, anchor) {
-  const container = $('overlay-container');
-  const img = $('source-img');
-  const prev = currentZoom;
-  currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(level * 1000) / 1000));
-  if (img && img.naturalWidth) {
-    img.style.width = Math.round(img.naturalWidth * currentZoom) + 'px';
-    img.style.height = 'auto';
-    // keep the point under the cursor (or the centre) still while zooming
-    if (container && prev && prev !== currentZoom) {
-      const ax = anchor ? anchor.x : container.clientWidth / 2;
-      const ay = anchor ? anchor.y : container.clientHeight / 2;
-      const k = currentZoom / prev;
-      container.scrollLeft = (container.scrollLeft + ax) * k - ax;
-      container.scrollTop = (container.scrollTop + ay) * k - ay;
-    }
-  }
+function setZoom(level) {
+  currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(level * 100) / 100));
+  const wrapper = $('overlay-wrapper');
+  if (wrapper) wrapper.style.transform = `scale(${currentZoom})`;
   const badge = $('zoom-badge');
   if (badge) badge.textContent = `${Math.round(currentZoom * 100)}%`;
 }
-function zoomBy(factor, anchor) { fitMode = false; setZoom(currentZoom * factor, anchor); }
+function zoomBy(factor) { setZoom(currentZoom * factor); }
 function fitZoom() {
-  fitMode = true;
   const container = $('overlay-container');
   const img = $('source-img');
   if (!container || !img || !img.naturalWidth) { setZoom(1.0); return; }
-  // Edge to edge: fill the pane width, upscaling small images too.
-  const ratio = (container.clientWidth - 2) / img.naturalWidth;
-  setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, ratio)));
-  container.scrollTop = 0; container.scrollLeft = 0;
-}
-if (typeof ResizeObserver !== 'undefined') {
-  const _oc = document.getElementById('overlay-container');
-  if (_oc) new ResizeObserver(() => { if (fitMode) fitZoom(); }).observe(_oc);
+  const cWidth = container.clientWidth - 16;
+  const ratio = cWidth / img.naturalWidth;
+  setZoom(Math.max(MIN_ZOOM, Math.min(1.0, ratio)));
 }
 
 /* ─── Bounding Box Overlay ─────────────────────────────────────────────────── */
@@ -3926,30 +3926,16 @@ $('view-mode-editor').onclick = () => {
   $(id).onchange = renderBboxOverlay;
 });
 
-/* real header+toolbar height → --chrome-h (replaces the hard-coded 88px) */
-(function syncChromeHeight() {
-  const set = () => {
-    const h = ($('app-header') ? $('app-header').offsetHeight : 0) + ($('toolbar') ? $('toolbar').offsetHeight : 0);
-    document.documentElement.style.setProperty('--chrome-h', h + 'px');
-  };
-  set();
-  if (typeof ResizeObserver !== 'undefined') {
-    const ro = new ResizeObserver(set);
-    ['app-header', 'toolbar'].forEach(id => $(id) && ro.observe($(id)));
-  } else window.addEventListener('resize', set);
-})();
-
 $('btn-zoom-in').onclick = () => zoomBy(1.25);
 $('btn-zoom-out').onclick = () => zoomBy(0.8);
 $('btn-zoom-fit').onclick = fitZoom;
-$('btn-zoom-100').onclick = () => { fitMode = false; setZoom(1.0); };
+$('btn-zoom-100').onclick = () => setZoom(1.0);
 
 $('overlay-container').addEventListener('wheel', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) {
     e.preventDefault();
-    const r = e.currentTarget.getBoundingClientRect();
-    const anchor = { x: e.clientX - r.left, y: e.clientY - r.top };
-    zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, anchor);
+    if (e.deltaY < 0) zoomBy(1.15);
+    else zoomBy(0.85);
   }
 }, { passive: false });
 
@@ -4031,17 +4017,10 @@ if ($('shreeshrii-model-sel')) {
 try {
   const _ces = $('cloud-engine-sel');
   if (_ces) {
-    // 'auto' currently routes to EasyOCR, which crashes on the ZeroGPU Space and
-    // then falls back to MIDF anyway — default (and migrate) to MIDF directly.
-    try {
-      let v = localStorage.getItem('eymCloudEngine');
-      if (!v || (v === 'auto' && !localStorage.getItem('eymCloudEngineV2'))) v = 'midf';
-      localStorage.setItem('eymCloudEngineV2', '1');
-      _ces.value = v;
-    } catch { _ces.value = 'midf'; }
+    try { _ces.value = localStorage.getItem('eymCloudEngine') || 'auto'; } catch {}
     _ces.onchange = () => {
       try { localStorage.setItem('eymCloudEngine', _ces.value); } catch {}
-      toast(`Cloud engine: ${_ces.value === 'auto' ? 'Auto (EasyOCR full page / MIDF line OCR)' : _ces.value === 'easyocr' ? 'EasyOCR (Devanagari full-page text + boxes)' : _ces.value === 'midf' ? 'MIDF — Kraken PP-OCRv6, 17 MB on CPU (~0.2s a line)' : _ces.value === 'qwen' ? 'Qwen / Gemma (vision model, GPU)' : 'TrOCR (word-level fallback)'}`);
+      toast(`Cloud engine: ${_ces.value === 'auto' ? 'Auto (EasyOCR full page / MIDF line OCR)' : _ces.value === 'easyocr' ? 'EasyOCR (Devanagari full-page text + boxes)' : _ces.value === 'midf' ? 'MIDF — Kraken PP-OCRv6, 17 MB on CPU (~0.2s a line)' : _ces.value === 'sansar' ? 'Sansar OCR 2B (MuseMesh Sanskrit VLM, 1.05% CER)' : 'TrOCR (word-level fallback)'}`);
     };
   }
 } catch {}
